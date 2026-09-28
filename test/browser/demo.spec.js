@@ -1,0 +1,108 @@
+import { test, expect } from '@playwright/test';
+import { mkdirSync } from 'node:fs';
+async function onboard(page, name) {
+  await page.getByRole('button',{name:'Try the demo',exact:true}).click();
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await page.getByLabel('What should I call you?').fill(name);
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await page.getByRole('button',{name:'Skip for now',exact:true}).click();
+  await page.getByRole('button',{name:'Let’s make a plan'}).click();
+}
+
+test('host → conversational redirect → share → guest text and web → vote → confirm',async({page,browser})=>{
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.setViewportSize({width:1440,height:1100});
+  await page.goto('/');
+  await onboard(page,'Alex');
+  await page.getByRole('button',{name:'Yes, Hollywood'}).click();
+  await page.getByRole('button',{name:'Live shows',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Golden hour, good company'})).toBeVisible();
+  mkdirSync('screenshots',{recursive:true});
+  await page.screenshot({path:'screenshots/desktop-conversation.png',fullPage:true,animations:'disabled'});
+  await page.getByLabel('Message Rall-e').fill('not that, something outdoors');
+  await page.getByRole('button',{name:'Send message'}).click();
+  await expect(page.getByRole('heading',{name:'Take the scenic route'})).toBeVisible();
+  await page.getByRole('button',{name:'Make this the plan'}).last().click();
+  await page.getByRole('button',{name:'Create the plan page'}).click();
+  const link=await page.getByLabel('Mike’s invitation link').inputValue();
+  await page.getByLabel('Close dialog').click();
+  const guestContext=await browser.newContext({viewport:{width:390,height:844}});const guest=await guestContext.newPage();
+  guest.on('pageerror',e=>errors.push(e.message));
+  await guest.goto(link);
+  await expect(guest.getByRole('heading',{name:'Alex has a plan for you.'})).toBeVisible();
+  await guest.getByRole('tab',{name:'Texts',exact:true}).click();
+  await guest.getByRole('button',{name:'YES',exact:true}).click();
+  await guest.getByRole('tab',{name:'The page'}).click();
+  await expect(guest.locator('.person-row').filter({hasText:'Mike (you)'})).toContainText('I’m in');
+  await guest.getByRole('button',{name:'Maybe',exact:true}).click();
+  await expect(guest.getByRole('heading',{name:'Your reply has been saved!'})).toBeVisible();
+  await guest.screenshot({path:'screenshots/figma-vote-success.png',fullPage:true});
+  await guest.getByRole('button',{name:'Back to the plan',exact:true}).click();
+  await guest.getByRole('button',{name:'I’m in',exact:true}).click();
+  await guest.getByRole('button',{name:'Not now',exact:true}).click();
+  await guest.getByRole('checkbox',{name:'Keep me posted'}).click();
+  await expect(guest.getByRole('checkbox',{name:'Keep me posted'})).toBeChecked();
+  await guest.getByRole('button',{name:'Suggest another idea'}).click();
+  await guest.getByLabel('Your idea').selectOption('dinner');
+  await guest.getByLabel('A little pitch').fill('Could we grab dinner instead?');
+  await guest.getByRole('button',{name:'Put it to the group'}).click();
+  await expect(guest.getByRole('heading',{name:'Dinner at Casa Vera',exact:true})).toBeVisible();
+  await guest.screenshot({path:'screenshots/mobile-guest.png',fullPage:true,animations:'disabled'});
+  const overflow=await guest.evaluate(()=>document.documentElement.scrollWidth>innerWidth);expect(overflow).toBe(false);
+  await expect(page.getByRole('button',{name:'Choose idea (1)'})).toBeVisible({timeout:10000});
+  await page.getByRole('button',{name:'Choose idea (1)'}).click();
+  await page.getByRole('button',{name:'Add a stop'}).click();
+  await page.getByRole('button',{name:'Small-room stand-up'}).click();
+  await page.getByRole('button',{name:'Let’s make it official'}).click();
+  await page.getByRole('button',{name:'Confirm the plan'}).click();
+  await expect(page.getByText('It’s happening. Your friends can see the confirmed plan.')).toBeVisible();
+  await page.evaluate(()=>window.scrollTo(0,0));
+  await page.screenshot({path:'screenshots/desktop-plan.png',fullPage:true,animations:'disabled'});
+  await page.reload();
+  await page.getByRole('tab',{name:'The page'}).click();
+  await expect(page.getByText('It’s happening. Your friends can see the confirmed plan.')).toBeVisible();
+  await expect(guest.locator('.status')).toHaveText('It’s happening',{timeout:10000});
+  expect(errors).toEqual([]);await guestContext.close();
+});
+test('API authorization, invalid links, and origin protection',async({request,page})=>{
+  expect((await request.post('/api/action',{data:{action:'confirm'}})).status()).toBe(401);
+  expect((await request.get('/api/guest/bad-token')).status()).toBe(410);
+  expect((await request.post('/api/session',{headers:{Origin:'https://unrelated.example'},data:{name:'Alex'}})).status()).toBe(403);
+  await page.goto('/p/bad-token');await expect(page.getByRole('heading',{name:'This link needs a little help.'})).toBeVisible();
+});
+test('mobile onboarding and keyboard-friendly modal',async({page})=>{
+  await page.setViewportSize({width:375,height:812});await page.goto('/');
+  await onboard(page,'Jess');
+  await page.getByRole('button',{name:'Yes, Hollywood'}).click();await page.getByRole('button',{name:'Dinner',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'A table worth gathering around'})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+  await page.screenshot({path:'screenshots/mobile-chat.png',fullPage:true,animations:'disabled'});
+  await page.getByRole('button',{name:'Presenter controls'}).click();await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');await expect(page.getByRole('dialog')).toBeHidden();
+});
+
+
+test('Figma onboarding validates input and makes simulated verification explicit',async({page})=>{
+  await page.setViewportSize({width:393,height:852}); await page.goto('/');
+  await page.screenshot({path:'screenshots/figma-landing-mobile.png',fullPage:true});
+  await page.getByRole('button',{name:'Try the demo',exact:true}).click();
+  await page.screenshot({path:'screenshots/figma-welcome-mobile.png',fullPage:true});
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await page.getByLabel('What should I call you?').fill('Taylor');
+  await page.getByLabel('Email',{exact:true}).fill('not-an-email');
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('valid email');
+  await page.getByLabel('Email',{exact:true}).fill('demo@example.com');
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(page.getByText('Demo only: no verification text')).toBeVisible();
+  await page.getByRole('button',{name:'Preview verification'}).click();
+  await page.getByLabel('Verification code').fill('111111');
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('123456');
+  await page.getByLabel('Verification code').fill('123456');
+  await page.getByRole('button',{name:'Continue',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Connect Google'})).toBeDisabled();
+  await page.getByRole('button',{name:'Let’s make a plan'}).click();
+  await expect(page.getByLabel('Conversation')).toContainText('Hey Taylor');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+});

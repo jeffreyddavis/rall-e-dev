@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+.env
+.git
+test
+test-results
+screenshots
+ops
+*.md
+.local
+.ssh-known-hosts*

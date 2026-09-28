@@ -1,0 +1,5 @@
+.sms-panel>p,.sms-panel>div>p{font-size:12px;color:#7c7061;margin:16px 0}
+.sms-panel form>input{width:100%;border:1px solid #dbcdb9;border-radius:6px;background:#fffdf8;padding:12px;font-size:16px}
+.sms-panel .button{margin-top:18px}.sms-body{white-space:pre-wrap;overflow-wrap:anywhere}.sms-entry{margin-top:24px}
+.sms-history{border-top:1px solid var(--line);margin-top:25px;padding-top:20px}.sms-history h3{font-size:15px;margin-bottom:12px}
+.sms-history>div{display:flex;flex-direction:column;gap:5px;padding:12px 0;border-bottom:1px solid var(--line);font-size:11px}.sms-history span{color:#7c7061}

@@ -1,0 +1,26 @@
+[Unit]
+Description=Rall-e prototype
+After=network.target
+
+[Service]
+Type=simple
+User=rally-demo
+Group=rally-demo
+WorkingDirectory=/opt/rally-demo/current
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3107
+Environment=DB_PATH=/var/lib/rally-demo/rally.sqlite
+EnvironmentFile=-/etc/rally-demo.env
+ExecStart=/opt/rally-demo/runtime/bin/node server/index.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/rally-demo
+MemoryMax=384M
+
+[Install]
+WantedBy=multi-user.target

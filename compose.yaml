@@ -1,0 +1,20 @@
+name: rally-demo
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${RALLY_PORT:-3107}:3000"
+    environment:
+      NODE_ENV: production
+      AWS_REGION: ${AWS_REGION:-us-west-1}
+      BEDROCK_MODEL_ID: ${BEDROCK_MODEL_ID:-}
+    volumes:
+      - rally-data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+volumes:
+  rally-data:
