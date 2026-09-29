@@ -123,3 +123,13 @@ test('movies via SerpApi: nearby theaters from Places, each theater’s showtime
   await d.search(loc, { what: 'primetime movie' }); assert.equal(calls.filter(u => u.includes('serpapi.com')).length, serpCalls); // cached
   store.close();
 });
+
+test('a second search keeps the first search’s options available (newest first)', async () => {
+  const { Discovery } = await import('../server/discovery.mjs');
+  const { registerEvent } = await import('../server/catalog.mjs');
+  const store = new Store(':memory:'), d = new Discovery(store, {}, async () => ({ ok: true, json: async () => ({}) }));
+  const ev = id => registerEvent({ id, short: id, venue: 'V', time: 'Tonight', priceText: '$34', description: 'x', source: 'Ticketmaster' });
+  d.remember(ME, [ev('tm_a'), ev('tm_b')]); d.remember(ME, [ev('tm_c')]);
+  assert.deepEqual(d.recent(ME).map(e => e.id), ['tm_c', 'tm_a', 'tm_b']);
+  store.close();
+});

@@ -265,7 +265,13 @@ export class Discovery {
       color: art(e.category), fictional: false, kind: 'event', ...e };
   }
   // What the agent found for this person recently, so "yes, the jazz one" works in a later text.
-  remember(phone, found) { if (found.length) this.db.prepare('INSERT OR REPLACE INTO recent_finds VALUES (?,?,?)').run(phone, JSON.stringify(found.map(e => e.id)), Date.now()); }
+  // Keeps everything found for them in the last day (newest first), so a follow-up search doesn't wipe out the options
+  // they're still asking about ("how much are tickets?" after "what about Saturday?").
+  remember(phone, found) {
+    if (!found.length) return;
+    const fresh = found.map(e => e.id), older = this.recent(phone).map(e => e.id).filter(id => !fresh.includes(id));
+    this.db.prepare('INSERT OR REPLACE INTO recent_finds VALUES (?,?,?)').run(phone, JSON.stringify([...fresh, ...older].slice(0, 20)), Date.now());
+  }
   recent(phone) {
     const row = this.db.prepare('SELECT * FROM recent_finds WHERE phone=? AND at>?').get(phone, Date.now() - DAY);
     return row ? JSON.parse(row.ids).map(id => eventById(id)).filter(Boolean) : [];
