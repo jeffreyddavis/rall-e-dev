@@ -141,3 +141,29 @@ test('show_options with more than 3 picks: 3 preview cards, and every card opens
   assert.deepEqual(t.sms.flow.options(set).ids, ['museum', 'trail', 'dinner', 'comedy', 'rooftop']);
   t.store.close();
 });
+
+test('if Claude is down, the reply comes from the OpenAI backup with the same tools, and the backup sticks for a while', async () => {
+  const store = new Store(':memory:'), calls = [];
+  const oa = [
+    { choices: [{ message: { content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'start_account', arguments: '{"first_name":"Jeff"}' } }] } }], usage: { prompt_tokens: 100, completion_tokens: 10 } },
+    { choices: [{ message: { content: 'Nice to meet you, Jeff!' } }], usage: { prompt_tokens: 120, completion_tokens: 8 } },
+    { choices: [{ message: { content: 'Still here!' } }], usage: {} }];
+  const fetchImpl = async (url, init) => {
+    const body = JSON.parse(init.body); calls.push({ url, body });
+    if (url.includes('anthropic')) return { ok: false, status: 529, json: async () => ({ error: { message: 'Overloaded' } }) };
+    if (url.includes('openai')) {
+      if (calls.filter(c => c.url.includes('openai')).length === 2) { const tool = body.messages.find(m => m.role === 'tool'); assert.equal(tool.tool_call_id, 'c1'); assert.match(tool.content, /Account created/); }
+      assert.equal(body.messages[0].role, 'system'); assert.ok(body.tools.length > 0 && body.tools.every(t => t.type === 'function' && t.function.parameters));
+      return { ok: true, status: 200, json: async () => oa.shift() };
+    }
+    throw new Error('unexpected ' + url);
+  };
+  const sms = new Sms(store, { SMS_MODE: 'preview', ANTHROPIC_API_KEY: 'k', OPENAI_API_KEY: 'o', PUBLIC_BASE_URL: 'https://rall-e.ai', SMS_SEND_SPACING_MS: '0' }, undefined, fetchImpl);
+  await sms.simulate(HOST, "Hi, I'm Jeff");
+  const last = () => store.db.prepare("SELECT body FROM sms_log WHERE phone=? AND direction='out' AND kind='reply' ORDER BY rowid DESC").get(HOST).body;
+  assert.equal(last(), 'Nice to meet you, Jeff!');
+  assert.equal(calls.filter(c => c.url.includes('anthropic')).length, 1); // Claude tried once, then the backup finished the reply
+  await sms.simulate(HOST, 'you there?');
+  assert.equal(last(), 'Still here!'); assert.equal(calls.filter(c => c.url.includes('anthropic')).length, 1); // skipped Claude while it's down
+  store.close();
+});

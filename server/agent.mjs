@@ -58,6 +58,9 @@ export class Agent {
     this.flow = flow; this.store = flow.store; this.fetch = fetchImpl;
     this.key = env.ANTHROPIC_API_KEY || ''; this.model = env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
     this.effort = env.ANTHROPIC_EFFORT || 'low'; this.timeout = Number(env.AGENT_TIMEOUT_MS) || 25000;
+    // Backup brain: if Claude is down, the same conversation continues on OpenAI (same prompt, tools and history).
+    this.openaiKey = env.OPENAI_API_KEY || ''; this.openaiModel = env.OPENAI_MODEL || 'gpt-6-sol'; this.openaiEffort = env.OPENAI_REASONING_EFFORT ?? 'low';
+    this.claudeDownUntil = 0; // after a Claude outage error, skip straight to the backup for a couple of minutes
     this.enabled = Boolean(this.key) && env.SMS_AGENT !== 'off'; this.pendingEmoji = new Map(); this.pendingCards = new Map(); this.features = new FeatureLog(flow.db);
   }
 
@@ -232,14 +235,56 @@ export class Agent {
   }
 
   // ---------- loop ----------
-  async call(body) {
+  // Claude first; on an outage-type failure (5xx/529 overloaded, 429, timeout, network) use OpenAI for this reply and
+  // keep using it for 2 minutes before trying Claude again. Returns Claude-shaped results either way.
+  async call(body, state = {}) {
+    if (this.openaiKey && (state.backup || Date.now() < this.claudeDownUntil)) { state.backup = true; return this.callOpenAI(body); }
+    try { return await this.callClaude(body); }
+    catch (error) {
+      const outage = !error.status || error.status >= 500 || error.status === 429 || error.status === 529;
+      if (!this.openaiKey || !outage) throw error;
+      console.error(`Claude unavailable (${error.message}); answering with the OpenAI backup.`);
+      this.claudeDownUntil = Date.now() + 120000; state.backup = true;
+      stats.bump('ai_backup_switches');
+      return this.callOpenAI(body);
+    }
+  }
+  async callOpenAI(body) {
+    const text = c => typeof c === 'string' ? c : (c || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
+    const messages = [{ role: 'system', content: body.system }];
+    for (const m of body.messages) {
+      if (m.role === 'user') {
+        if (typeof m.content === 'string') { messages.push({ role: 'user', content: m.content }); continue; }
+        for (const b of m.content) if (b.type === 'tool_result') messages.push({ role: 'tool', tool_call_id: b.tool_use_id, content: typeof b.content === 'string' ? b.content : JSON.stringify(b.content) });
+        const t = text(m.content); if (t) messages.push({ role: 'user', content: t });
+      } else {
+        const calls = (typeof m.content === 'string' ? [] : m.content).filter(b => b.type === 'tool_use').map(b => ({ id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.input || {}) } }));
+        messages.push({ role: 'assistant', content: text(m.content) || null, ...(calls.length ? { tool_calls: calls } : {}) });
+      }
+    }
+    const payload = { model: this.openaiModel, messages, tools: body.tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.input_schema } })), max_completion_tokens: 2000, ...(this.openaiEffort ? { reasoning_effort: this.openaiEffort } : {}) };
+    const post = async p => {
+      const response = await this.fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', signal: AbortSignal.timeout(this.timeout),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${this.openaiKey}` }, body: JSON.stringify(p) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw Object.assign(new Error(`OpenAI API ${response.status}: ${result?.error?.message || 'error'}`), { status: response.status });
+      return result;
+    };
+    let result;
+    try { result = await post(payload); }
+    catch (error) { if (error.status === 400 && /reasoning/i.test(error.message)) { delete payload.reasoning_effort; result = await post(payload); } else throw error; } // older models
+    meter.openai(result.usage);
+    const msg = result.choices?.[0]?.message || {}, uses = (msg.tool_calls || []).map(c => ({ type: 'tool_use', id: c.id, name: c.function.name, input: (() => { try { return JSON.parse(c.function.arguments || '{}'); } catch { return {}; } })() }));
+    return { content: [...(msg.content ? [{ type: 'text', text: msg.content }] : []), ...uses], stop_reason: uses.length ? 'tool_use' : 'end_turn', backup: true };
+  }
+  async callClaude(body) {
     const response = await this.fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: AbortSignal.timeout(this.timeout),
       headers: { 'content-type': 'application/json', 'x-api-key': this.key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body)
     });
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
     if (response.ok) meter.ai(result.usage, response.headers);
-    if (!response.ok) throw new Error(`Claude API ${response.status}: ${result?.error?.message || 'error'}`);
+    if (!response.ok) throw Object.assign(new Error(`Claude API ${response.status}: ${result?.error?.message || 'error'}`), { status: response.status });
     return result;
   }
   async respond(phone, text, { operator = '' } = {}) {
@@ -258,8 +303,9 @@ export class Agent {
     const ctx0 = this.context(phone), today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
     const system = `${SYSTEM}\n\nToday is ${today} (US Eastern).\n\n${this.discovery.enabled ? DISCOVERY : `Live search is off: use only this sample catalogue for Hollywood, Los Angeles (fictional; say "sample" for prices).\nCatalogue (id: details):\n${catalogue()}`}\n\nCurrent situation for the person texting you (as of their latest text):\n${this.state(ctx0)}`;
     const tools = this.tools(ctx0);
+    const state = {}; // once a reply falls back to OpenAI it finishes there (the two can't share a half-finished turn)
     for (let round = 0; round < 6; round++) {
-      const result = await this.call({ model: this.model, max_tokens: 1200, output_config: { effort: this.effort }, system, tools, messages });
+      const result = await this.call({ model: this.model, max_tokens: 1200, output_config: { effort: this.effort }, system, tools, messages }, state);
       messages.push({ role: 'assistant', content: result.content });
       const uses = result.content.filter(b => b.type === 'tool_use');
       if (result.stop_reason !== 'tool_use' || !uses.length) {

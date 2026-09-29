@@ -22,7 +22,8 @@ export const meter = {
   attach(db) {
     this.db = db;
     db.exec(`CREATE TABLE IF NOT EXISTS api_calls (day TEXT NOT NULL, provider TEXT NOT NULL, sku TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, provider, sku));
-      CREATE TABLE IF NOT EXISTS ai_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS ai_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS openai_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL);`);
   },
   call(url, headers) {
     try {
@@ -37,6 +38,10 @@ export const meter = {
       .run(today(), usage.input_tokens || 0, usage.output_tokens || 0, usage.cache_read_input_tokens || 0, usage.cache_creation_input_tokens || 0);
     const h = k => headers?.get?.(`anthropic-ratelimit-${k}`);
     if (h('requests-limit')) this.headers.anthropic = { requests: [Number(h('requests-remaining')), Number(h('requests-limit'))], input: [Number(h('input-tokens-remaining')), Number(h('input-tokens-limit'))], output: [Number(h('output-tokens-remaining')), Number(h('output-tokens-limit'))], at: Date.now() };
+  },
+  openai(usage = {}) {
+    if (!this.db) return;
+    this.db.prepare('INSERT INTO openai_usage VALUES (?,1,?,?) ON CONFLICT(day) DO UPDATE SET calls=calls+1, input=input+excluded.input, output=output+excluded.output').run(today(), usage.prompt_tokens || 0, usage.completion_tokens || 0);
   },
   calls(provider, sku, since) { return this.db.prepare(`SELECT COALESCE(SUM(n),0) AS n FROM api_calls WHERE provider=? ${sku ? 'AND sku=?' : ''} AND day>=?`).get(...[provider, ...(sku ? [sku] : []), since]).n; }
 };
