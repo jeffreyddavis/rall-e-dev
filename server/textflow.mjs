@@ -261,7 +261,7 @@ export class TextFlow {
     let s = t.s, p = s.plan;
     const guard = fn => { try { return fn(); } catch (error) { if (!error.status) throw error; return this.reply(phone, `Rall-e: ${error.message}`); } };
     if (['NEW', 'RESTART'].includes(word)) {
-      s = this.store.resetAt(digest, { via: 'sms' }); this.link(phone, digest, s, 'host');
+      s = this.newPlan(phone, t).s;
       return this.reply(phone, 'Fresh start! Still planning around Hollywood, LA? Reply YES.');
     }
     if (['STATUS', 'PLAN', 'DETAILS'].includes(word) && p.stops.length) return this.reply(phone, this.summary(s));
@@ -324,6 +324,17 @@ export class TextFlow {
     this.link(phone, this.store.digestOf(id), state, 'host');
     this.db.prepare('DELETE FROM sms_pending WHERE phone=?').run(phone);
     return nice;
+  }
+  // A new plan never pulls the rug out from friends on the current one. If anyone is on it, the host gets a fresh
+  // plan next to it (the old one keeps its guests, links and texts; switch_plan moves between them). An empty
+  // draft is simply reset in place so hosts don't pile up blank plans.
+  newPlan(phone, t) {
+    const old = t.s;
+    if (!old.plan.participants.length) { const s = this.store.resetAt(t.digest, { via: 'sms' }); this.link(phone, t.digest, s, 'host'); return { s, digest: t.digest, kept: false }; }
+    const { id, state } = this.store.create(old.name), digest = this.store.digestOf(id);
+    this.db.prepare('INSERT OR IGNORE INTO host_contacts SELECT ?, name_key, name, phone, updated FROM host_contacts WHERE digest=?').run(digest, t.digest);
+    this.link(phone, digest, state, 'host');
+    return { s: state, digest, kept: true, previous: old.plan.title };
   }
   // Each host's address book: names they've invited with a number, reused across plans ("invite Mike and Marc").
   remember(digest, name, phone) { this.db.prepare('INSERT OR REPLACE INTO host_contacts VALUES (?,?,?,?,?)').run(digest, name.trim().toLowerCase(), name.trim(), phone, Date.now()); }

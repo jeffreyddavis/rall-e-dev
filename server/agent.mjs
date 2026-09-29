@@ -82,6 +82,7 @@ export class Agent {
     return '';
   }
   state({ t, role, threads, phone }) {
+    if (role === 'new' && this.flow.hadThreads(phone)) return 'This person was on a plan with Rall-e before, but it is no longer active (it ended, or the host closed it). You cannot message that group or change that plan anymore: say so plainly in one line, without blaming anyone. If their first name appears in the conversation, use it and do NOT ask for it again. Offer to start a plan of their own (call start_account with their first name when they want to), or suggest they ask the host for a fresh link.';
     if (role === 'new') return 'This person is new: you do not know their name yet. Greet them, briefly explain Rall-e, and ask for their first name. When they give it, call start_account.';
     const s = t.s, p = s.plan, person = t.person;
     const lines = [this.channel(phone), this.features.stateLine(t.phone), `Role: ${role === 'host' ? `HOST (their name: ${s.name})` : `INVITED FRIEND (their name: ${person.name}; host: ${s.name})`}`,
@@ -154,7 +155,7 @@ export class Agent {
       T('reopen_plan', 'Reopen a confirmed plan so it can be changed (add stops, take suggestions, switch). Friends are told. Keeps everyone and their links.'),
       T('cancel_plan', 'Call off the plan; friends are told.'),
       T('mark_happened', 'Mark the outing as done (after it happened).'),
-      T('start_new_plan', 'Start a brand-new, unrelated plan. Rarely needed: to change the current plan use reopen_plan / add_stop / pick_suggestion instead. The current plan closes and friends need re-inviting (saved contacts are re-invited by name automatically). Only when the host explicitly wants something new.'),
+      T('start_new_plan', 'Start a brand-new, unrelated plan. Rarely needed: to change the current plan use reopen_plan / add_stop / pick_suggestion instead. The current plan stays as it is for the friends already on it (they keep their links and can still text); the host can go back to it with switch_plan. Saved contacts can be invited by name. Only when the host explicitly wants something new.'),
       T('get_links', 'Get the host\'s own plan page link (the whole plan: every stop plus friends\' ideas and picks) and each friend\'s personal plan link. Use when they ask to see the plan or the links.'),
       T('message_group', 'Share the host\'s message, word for word, with everyone on the plan. Only when they clearly want the group to see it.', { text: { type: 'string', description: 'Their exact words' } }, ['text'])];
   }
@@ -228,7 +229,7 @@ export class Agent {
         if (name === 'confirm_plan') { act('confirm'); return `Confirmed. ${flow.fanout} friends were texted the details.`; }
         if (name === 'cancel_plan') { act('drop'); return `Called off. ${flow.fanout} friends were told.`; }
         if (name === 'mark_happened') { act('happened'); return 'Marked as done; preferences updated.'; }
-        if (name === 'start_new_plan') { const fresh = this.store.resetAt(t.digest, { via: 'sms' }); flow.link(phone, t.digest, fresh, 'host'); return 'New plan started. Ask if Hollywood still works and what they feel like.'; }
+        if (name === 'start_new_plan') { const r = flow.newPlan(phone, t); return `New plan started.${r.kept ? ` "${r.previous}" is still on for the friends in it (their links and texts keep working); switch_plan goes back to it.` : ''} Ask what they feel like doing${this.discovery.enabled ? '' : ' and if Hollywood still works'}.`; }
         if (name === 'get_links') return `Host's evening view (only for them, include it when they want to see the plan): ${flow.sms.base || 'https://rall-e.ai'}/n/${this.flow.store.nightLink(t.digest)}\n${p.participants.length ? `Friends' personal links (each friend sees the same evening view):\n${p.participants.map(x => `${x.name}: ${flow.link_(s, x)}`).join('\n')}` : 'Nobody invited yet.'}`;
         if (name === 'message_group') { act('chat', { text: String(input.text).slice(0, 300) }); return flow.fanout ? `Sent to ${flow.fanout} people.` : 'Nobody on this plan gets texts yet; it was saved to the plan page.'; }
       }

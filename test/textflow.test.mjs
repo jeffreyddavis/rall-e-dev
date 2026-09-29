@@ -116,6 +116,13 @@ test('a confirmed plan can be reopened, and re-invites by name reuse saved numbe
   t.text(HOST, 'Mike and Dave');
   assert.equal(t.out(MIKE).length, before + 1); assert.match(t.last(MIKE), /Jeff invited you to Dinner at Casa Vera/);
   assert.match(t.last(HOST), /Invited Mike and Dave by text/);
+  // The old plan was not wiped: its friends keep their plan, links and group.
+  const old = t.store.load(digest);
+  assert.equal(old.plan.title, 'Sunset on the trail'); assert.equal(old.plan.participants.length, 3);
+  const hostThreads = t.sms.flow.threadsFor(t.sms.labPhone(HOST));
+  assert.equal(hostThreads.length, 2); assert.notEqual(hostThreads[0].digest, digest);
+  assert.ok(t.sms.flow.threadsFor(t.sms.labPhone(DAVE)).some(x => x.digest === digest && x.person));
+  assert.deepEqual(t.sms.flow.contacts(hostThreads[0].digest).sort(), ['Dave', 'Mike']);
   t.store.close();
 });
 
