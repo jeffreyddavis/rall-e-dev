@@ -61,7 +61,7 @@ test('guests talk to the agent; group notifications stay deterministic; failures
     tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
     tool('make_plan', { event_id: 'dinner' }), say('Dinner at Casa Vera it is. Who is coming?'),
     tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }, { name: 'Dave', phone: '3105550103' }] }), say('Both invited!'),
-    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
+    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
     say('You’re in! See you Saturday.'),
     tool('message_group', { text: 'I can drive if anyone needs a ride' }), say('Passed that along to the group.'),
     new Error('network down')

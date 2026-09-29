@@ -6,6 +6,7 @@ import { Vault } from './vault.mjs';
 import { Discovery } from './discovery.mjs';
 import { Sendblue } from './sendblue.mjs';
 import { meter } from './usage.mjs';
+import { stats } from './stats.mjs';
 
 const digest = value => createHash('sha256').update(value || '').digest('hex');
 export const normalize = value => {
@@ -63,7 +64,7 @@ export class Sms {
       CREATE TABLE IF NOT EXISTS phone_services (phone TEXT PRIMARY KEY, service TEXT NOT NULL, source TEXT NOT NULL, at INTEGER NOT NULL);`);
     if (!this.db.prepare("SELECT 1 FROM pragma_table_info('sms_log') WHERE name='media'").get()) this.db.exec('ALTER TABLE sms_log ADD COLUMN media TEXT');
     this.vault = new Vault(store, this, env, fetchImpl);
-    meter.attach(this.db);
+    meter.attach(this.db); stats.attach(this.db); stats.backfill(); store.listen(event => stats.planEvent(event));
     this.discovery = new Discovery(store, env, fetchImpl);
     this.flow = new TextFlow(store, this);
   }
@@ -170,6 +171,7 @@ export class Sms {
   log(phone, direction, body, { sid = null, kind = 'reply', status = 'received' } = {}) {
     const id = randomUUID();
     this.db.prepare('INSERT INTO sms_log(id,phone,direction,body,kind,created,status,sid) VALUES(?,?,?,?,?,?,?,?)').run(id, phone, direction, body, kind, Date.now(), status, sid);
+    if (direction === 'in') { stats.bump('texts_in', 1, phone); stats.active(phone); }
     return id;
   }
   // Every conversational text goes through here. Returns 'preview' | 'blocked' | 'queued-local'.
@@ -180,6 +182,7 @@ export class Sms {
   }
   optIn(phone, source, consent) {
     this.db.prepare('INSERT OR IGNORE INTO sms_optins VALUES (?,?,?,?)').run(phone, Date.now(), String(source).slice(0, 60), consent);
+    stats.bump('signups_from_share', 1, phone);
     this.allowed.add(phone);
   }
   deliver(phone, body, { kind = 'reply', media = null, optInCode = false } = {}) {
@@ -194,6 +197,7 @@ export class Sms {
     const id = this.log(phone, 'out', body, { kind, status });
     if (error) this.db.prepare('UPDATE sms_log SET error=? WHERE id=?').run(error, id);
     if (media) this.db.prepare('UPDATE sms_log SET media=? WHERE id=?').run(media, id);
+    if (status === 'queued-local') { stats.bump('texts_out', 1, phone); if (['option', 'group', 'card', 'invite'].includes(kind)) stats.bump(`texts_out_${kind}`, 1, phone); }
     if (status === 'queued-local') this.queue = this.queue.then(() => this.transmit(id)).catch(error => console.error('SMS send failed:', error.message)).then(() => new Promise(r => setTimeout(r, this.spacing)));
     return status;
   }
@@ -215,6 +219,7 @@ export class Sms {
           this.sendblueRefused.add(row.phone); await this.sendTwilio(row, id); await this.nudgeImessage(row.phone); return;
         }
         this.db.prepare("UPDATE sms_log SET status=?,error=? WHERE id=? AND status='submitting'").run(Number(error.status) >= 400 && Number(error.status) < 500 ? 'failed' : 'unknown', String(error.message).slice(0, 80), id);
+        stats.gap('text_send_failed', `A text could not be delivered (${String(error.message).slice(0, 60)})`, 'auto', row.phone);
       }
       return;
     }

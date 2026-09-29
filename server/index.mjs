@@ -10,6 +10,7 @@ import { Signup } from './signup.mjs';
 import { FEATURES, featureById } from './features.mjs';
 import { usageReport } from './usage.mjs';
 import { wipeTexts, removePerson } from './wipe.mjs';
+import { stats } from './stats.mjs';
 import { OgImages } from './og.mjs';
 import { eventById } from './catalog.mjs';
 
@@ -78,6 +79,7 @@ const server = http.createServer(async (req, res) => {
       }
       const eventMatch = /^\/api\/event\/([\w-]{1,40})$/.exec(url.pathname);
       if (eventMatch && req.method === 'GET') { const e = eventById(eventMatch[1]); if (!e) fail(404, 'That listing is no longer available.'); return json(res, 200, { event: publicEvent(e), textNumbers: textNumbers() }); }
+      if (url.pathname === '/api/stats/share' && req.method === 'POST') { const kind = String((await body(req)).kind || ''); if (['night', 'ideas', 'spot'].includes(kind)) stats.bump(`share_taps_${kind}`); res.writeHead(204); return res.end(); }
       const joinMatch = /^\/api\/share\/([\w-]{12})\/join$/.exec(url.pathname);
       if (joinMatch && req.method === 'POST') {
         // The person just signed up (or signed back in) with a verified phone; their session says who they are.
@@ -87,7 +89,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, sms.flow.joinShared(phone, me.name, joinMatch[1]));
       }
       const shareMatch = /^\/api\/share\/([\w-]{12})$/.exec(url.pathname);
-      if (shareMatch && req.method === 'GET') { const s = store.shared(shareMatch[1]); return json(res, 200, { name: s.name, plan: { title: s.plan.title, status: s.plan.status, stops: s.plan.stops, going: 1 + s.plan.participants.filter(p => p.response === 'yes').length }, events: s.plan.stops.map(eventById).filter(Boolean).map(publicEvent), textNumbers: textNumbers() }); }
+      if (shareMatch && req.method === 'GET') { const s = store.shared(shareMatch[1]); stats.bump('shared_night_views'); return json(res, 200, { name: s.name, plan: { title: s.plan.title, status: s.plan.status, stops: s.plan.stops, going: 1 + s.plan.participants.filter(p => p.response === 'yes').length }, events: s.plan.stops.map(eventById).filter(Boolean).map(publicEvent), textNumbers: textNumbers() }); }
       const nightMatch = /^\/api\/night\/([\w-]{20,40})$/.exec(url.pathname);
       if (nightMatch) {
         const { digest, s } = store.night(nightMatch[1]);
@@ -101,7 +103,7 @@ const server = http.createServer(async (req, res) => {
       const optMatch = /^\/api\/options\/([\w-]{12})(\/pick)?$/.exec(url.pathname);
       if (optMatch && req.method === 'GET' && !optMatch[2]) { const o = sms.flow.options(optMatch[1]); if (!o) fail(410, 'These options have expired. Text Rall-e for fresh ones.'); return json(res, 200, { events: o.ids.map(id => publicEvent(eventById(id))), pick: o.pick || '', textNumbers: textNumbers(), shareUrl: `${publicBase}/e/${o.ids[0]}?o=${sms.flow.optionShare(optMatch[1])}` }); }
       const pubOpt = /^\/api\/options\/public\/([\w-]{12})$/.exec(url.pathname);
-      if (pubOpt && req.method === 'GET') { const ids = sms.flow.sharedOptions(pubOpt[1]); if (!ids) fail(410, 'These options have expired.'); return json(res, 200, { events: ids.map(id => publicEvent(eventById(id))), textNumbers: textNumbers(), shared: true }); }
+      if (pubOpt && req.method === 'GET') { const ids = sms.flow.sharedOptions(pubOpt[1]); if (ids) stats.bump('shared_list_views'); if (!ids) fail(410, 'These options have expired.'); return json(res, 200, { events: ids.map(id => publicEvent(eventById(id))), textNumbers: textNumbers(), shared: true }); }
       if (optMatch && req.method === 'POST' && optMatch[2]) { const input = await body(req); return json(res, 200, sms.flow.pick(optMatch[1], String(input.eventId || ''))); }
       // One-tap location sharing from a texted link (phone GPS, rounded to ~100 m).
       const locMatch = /^\/api\/location\/([\w-]{20,40})$/.exec(url.pathname);
@@ -136,6 +138,7 @@ const server = http.createServer(async (req, res) => {
         const opsIp = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
         const role = sms.opsRole(req.headers.authorization?.replace(/^Bearer /, ''), opsIp);
         if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, role === 'operator' ? { role, people: sms.opsPeople(), features: FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch })), live: sms.live } : { people: sms.opsPeople() }); // the dashboard key sees no hint of operator controls
+        if (url.pathname === '/api/ops/insights' && req.method === 'GET') return json(res, 200, stats.report({ gaps: role === 'operator' })); // gaps: operator only
         if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
         if (req.method !== 'POST') fail(405, 'Method not allowed.');

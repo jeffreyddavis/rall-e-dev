@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2 } from 'lucide-react';
+import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3 } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './ops.css';
+import Insights from './Insights.jsx';
 
 // Dashboard (/ops): live conversations and service usage. The operator key also gets controls to have Rall-e show off
 // a feature, send a text or wipe a conversation; other keys see only the plain dashboard, with no sign that more exists.
@@ -15,6 +16,7 @@ export default function OpsPage() {
   const [feature, setFeature] = useState(''), [note, setNote] = useState(''), [say, setSay] = useState(''), [showSay, setShowSay] = useState(false);
   const [busy, setBusy] = useState(false), [toast, setToast] = useState(''), end = useRef(null);
   const [wipe, setWipe] = useState(null), [wipeConfirm, setWipeConfirm] = useState('');
+  const [insights, setInsights] = useState(null), [loadingInsights, setLoadingInsights] = useState(false);
   const [tab, setTab] = useState('people'), [usage, setUsage] = useState(null), [loadingUsage, setLoadingUsage] = useState(false);
   async function call(path, input) {
     const r = await fetch(`/api/ops/${path}`, { method: input ? 'POST' : 'GET', headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' }, ...(input ? { body: JSON.stringify(input) } : {}) });
@@ -24,6 +26,8 @@ export default function OpsPage() {
   useEffect(() => { if (!key) return; let on = true; const tick = () => call('people').then(d => on && setData(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 5000); return () => { on = false; clearInterval(t); }; }, [key]);
   useEffect(() => { if (!key || !phone) return; let on = true; const tick = () => call(`thread?phone=${encodeURIComponent(phone)}`).then(d => on && setThread(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 2500); return () => { on = false; clearInterval(t); }; }, [key, phone]);
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [thread?.messages?.length]);
+  const loadInsights = () => { setLoadingInsights(true); return call('insights').then(setInsights).catch(e => setError(e.message)).finally(() => setLoadingInsights(false)); };
+  useEffect(() => { if (key && tab === 'insights') loadInsights(); }, [key, tab]);
   const loadUsage = () => { setLoadingUsage(true); return call('usage').then(setUsage).catch(e => setError(e.message)).finally(() => setLoadingUsage(false)); };
   // Usage: on open, then every 2 minutes (it calls provider APIs, so not too often). Also feeds the header alert.
   useEffect(() => { if (!key) return; loadUsage(); const t = setInterval(loadUsage, 120000); return () => clearInterval(t); }, [key]);
@@ -49,10 +53,12 @@ export default function OpsPage() {
     <header className="ops-top"><Wordmark/><span>Dashboard</span>{data && !viewer && <b className={data.live ? 'live' : ''}>{data.live ? 'LIVE: texts really send' : 'Preview'}</b>}</header>
     <nav className="ops-tabs">
       <button className={tab === 'people' ? 'on' : ''} onClick={() => setTab('people')}><Users size={15}/>Conversations</button>
+      <button className={tab === 'insights' ? 'on' : ''} onClick={() => setTab('insights')}><BarChart3 size={15}/>Insights</button>
       <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
     </nav>
     {tab === 'people' && alerts.length > 0 && <button className={`ops-alert ${alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}`} onClick={() => setTab('usage')}>⚠ {alerts.map(c => c.name.split(' (')[0]).join(', ')} {alerts.length === 1 ? 'needs' : 'need'} attention before a demo</button>}
     {error && <p className="error ops-error" role="alert">{error}</p>}
+    {tab === 'insights' && <Insights data={insights} loading={loadingInsights} onRefresh={loadInsights} ago={ago}/>}
     {tab === 'usage' && <section className="ops-usage">
       <div className="ops-usage-head"><h2>Service usage</h2><span>{usage ? `Checked ${ago(usage.at)}` : ''}</span><button className="ops-link" disabled={loadingUsage} onClick={loadUsage}><RefreshCw size={14} className={loadingUsage ? 'spin' : ''}/>Refresh</button></div>
       {!usage && <LoaderCircle className="spin"/>}

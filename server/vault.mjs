@@ -3,6 +3,7 @@
 // - Card numbers never reach Rall-e: Stripe's own form collects them and we keep only Stripe IDs plus brand/last4/expiry.
 // - People reach the vault through one-time links texted to their phone (15 minutes). The AI only ever sees masked summaries.
 // - Every read/write is recorded in vault_audit (field names only, never values).
+import { stats } from './stats.mjs';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { fail } from './store.mjs';
 
@@ -71,6 +72,7 @@ export class Vault {
   }
   // Low-risk fields sent by text (email, dietary, allergies). Everything else only through the secure link.
   saveFromText(phone, fields) {
+    stats.bump('vault_saves_text', 1, phone);
     this.require();
     const v = this.load(phone), changed = [];
     for (const [k, value] of Object.entries(fields || {})) {
@@ -110,7 +112,7 @@ export class Vault {
     return { phone: `••• ••• ${phone.slice(-4)}`, fields, card: card ? { brand: card.brand, last4: card.last4, expMonth: card.expMonth, expYear: card.expYear } : null, cards: this.cards, stripeKey: this.stripePublishable || null, expiresInSec: Math.round((this.db.prepare('SELECT expires FROM vault_links WHERE token=?').get(hash(token)).expires - Date.now()) / 1000) };
   }
   save(token, input) {
-    const phone = this.phoneFor(token), v = this.load(phone), changed = [];
+    const phone = this.phoneFor(token), v = this.load(phone), changed = []; stats.bump('vault_saves_web', 1, phone);
     for (const [k, max] of Object.entries(FIELDS)) {
       if (!(k in (input || {}))) continue;
       const value = typeof input[k] === 'string' ? input[k].trim().slice(0, max) : '';

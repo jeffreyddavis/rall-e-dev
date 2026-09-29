@@ -6,6 +6,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { EVENTS, MAX_STOPS, eventById, categoryFrom } from './catalog.mjs';
 import { Agent } from './agent.mjs';
 import { scrubCards } from './vault.mjs';
+import { stats } from './stats.mjs';
 
 const VIBES = [['1', 'dinner', 'Dinner'], ['2', 'live shows', 'Live shows'], ['3', 'museums', 'Museums & art'], ['4', 'nature', 'Outdoors']];
 const YES = /^(y|yes|yep|yeah|yup|sure|ok|okay|i'?m in|im in|in|count me in|let'?s do it|let'?s go|sounds good|love it|absolutely|definitely)[.!]*$/i;
@@ -111,6 +112,7 @@ export class TextFlow {
       catch (error) { console.error(`Agent attempt ${attempt} failed:`, error.message); if (attempt === 1) await new Promise(r => setTimeout(r, 800)); }
     }
     if (reply === undefined) {
+      stats.gap('ai_reply_failed', 'Rall-e could not answer a text (the AI call failed twice)', 'auto', phone);
       // With live search on, the keyword engine would pitch fictional samples, so just ask again.
       if (this.sms.discovery.enabled) this.reply(phone, 'Sorry, I hit a snag on my end. Could you send that again?');
       else this.route(phone, text);
@@ -171,7 +173,7 @@ export class TextFlow {
     if (!row.ids.includes(eventId)) { const e = new Error('That option isn’t in this list.'); e.status = 400; throw e; }
     if (row.pick === eventId) return { pick: eventId };
     if (row.changes >= 6) { const e = new Error('Text Rall-e to change your pick again.'); e.status = 429; throw e; }
-    this.db.prepare('UPDATE option_sets SET pick=?, changes=changes+1 WHERE id=?').run(eventId, set);
+    this.db.prepare('UPDATE option_sets SET pick=?, changes=changes+1 WHERE id=?').run(eventId, set); stats.bump('my_picks', 1, row.phone);
     const e = eventById(eventId);
     if (this.agent.enabled && this.sms.live) this.enqueue(row.phone, `(Tapped "My pick" on ${e.short} [${e.id}] on the options page)`);
     return { pick: eventId };
@@ -183,6 +185,7 @@ export class TextFlow {
     if (!this.agent.enabled) { const e = new Error('The texting agent is off.'); e.status = 409; throw e; }
     const run = (this.chains.get(phone) || Promise.resolve()).then(async () => {
       this.sms.typing(phone);
+      stats.bump('operator_nudges', 1, phone);
       const reply = await this.agent.respond(phone, '', { operator: instruction });
       await this.finish(phone, reply);
     }).catch(error => console.error('Operator nudge failed:', error.message));
@@ -316,6 +319,7 @@ export class TextFlow {
     const name = String(raw || '').replace(/[^\p{L}\s'’-]/gu, '').trim().split(/\s+/)[0];
     if (!name || name.length > 30) throw Object.assign(new Error('Please share a first name.'), { status: 400 });
     const nice = name[0].toUpperCase() + name.slice(1);
+    stats.bump('signups_by_text', 1, phone);
     const { id, state } = this.store.create(nice);
     this.link(phone, this.store.digestOf(id), state, 'host');
     this.db.prepare('DELETE FROM sms_pending WHERE phone=?').run(phone);

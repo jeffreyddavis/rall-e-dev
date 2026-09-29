@@ -4,6 +4,7 @@
 // Every text still goes through Sms.deliver() (live/preview, tester allowlist, STOP, caps).
 import { FEATURES, FeatureLog, featureForTool } from './features.mjs';
 import { meter } from './usage.mjs';
+import { stats } from './stats.mjs';
 import { EVENTS, MAX_STOPS, eventById } from './catalog.mjs';
 
 const CATEGORIES = ['dinner', 'live shows', 'comedy', 'museums', 'nature'];
@@ -41,7 +42,8 @@ Showing what you can do (see "Features" in the situation):
 - Answering a need: when they say something one of your features directly handles (a dietary need or allergy -> vault; "what's playing?" -> showtimes; "where should we go near me" with no location -> location), offer it right away in one natural sentence. Call mention_feature with why=need.
 - But never pile a second thing on while they're in the middle of setting something up (answering your questions to make a plan, inviting people, picking an option). Call queue_feature instead, finish the current thing, and bring it up in the reply where that's done, tied to what they said. E.g. after the invite goes out: "Done, I texted Maya. And since you mentioned she's vegetarian, I can keep that on file (allergies too) so every spot I suggest works for her. Want me to send the secure link?"
 - Unprompted self-promotion (tips): only when it clearly helps, one at a time, never one they've already seen, and not when the situation says tips aren't allowed now. Most replies mention no feature at all. Call mention_feature with why=tip.
-- Using a feature (sending cards or a link) counts automatically.`;
+- Using a feature (sending cards or a link) counts automatically.
+- Whenever you tell them you can't do something they asked for, or something failed or came up empty, also call log_gap (anonymous, for the team). Then still help as much as you can.`;
 
 const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
@@ -117,6 +119,7 @@ export class Agent {
       T('show_options', 'Show options as picture cards after your text. Pass EVERY option you mention in your text (up to 8), best first: the first 3 arrive as picture cards (one message each, with a photo preview) and tapping any card opens a page listing all of them with details and My pick.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 } }, ['event_ids']),
       T('send_location_link', 'Text them a one-tap link to share their current location from their phone.')] : [];
     const common = [
+      T('log_gap', 'Call this whenever you tell them you can\'t do something they asked, or something you tried failed or found nothing useful. It helps the team fix it. Give a short snake_case category (e.g. book_or_buy_tickets, prices_unavailable, no_results, movie_showtimes, unsupported_city, restaurant_reservations, weather, rides, other) and a one-line example of what they asked with NO names, phone numbers, emails, addresses or other personal details (e.g. "wants tickets bought for a comedy show Saturday").', { category: { type: 'string' }, example: { type: 'string' } }, ['category', 'example']),
       T('mention_feature', 'Call this whenever your reply offers or points out one of Rall-e\'s features (see "Features" in the situation), so you don\'t repeat it. why=need when it answers something they just said or asked; why=tip when unprompted.', { feature: { type: 'string', enum: FEATURES.map(f => f.id) }, why: { type: 'string', enum: ['need', 'tip'] } }, ['feature', 'why']),
       T('queue_feature', 'They said something a feature would help with, but they are in the middle of setting up something else: save it to bring up right after they finish (do not mention it yet).', { feature: { type: 'string', enum: FEATURES.map(f => f.id) }, reason: { type: 'string', description: 'What they said that makes it relevant, e.g. "their sister is vegetarian"' } }, ['feature', 'reason']),
       T('react', this.flow.sms.canReact(ctx.phone) ? 'React to their latest iMessage with a tapback: one emoji (e.g. 👍 ❤️ 😂 🎉 🔥 🙌). Use when it adds warmth; you can also reply with text.' : 'React with one emoji (e.g. 👍 ❤️ 😂 🎉 🔥 🙌). They are on regular texts, so it is shown at the start of your reply (or alone if you send no text).', { reaction: { type: 'string' } }, ['reaction']),
@@ -152,6 +155,8 @@ export class Agent {
   }
   async run(phone, name, input, ctx, text) {
     const { t } = ctx, flow = this.flow;
+    if (name === 'log_gap') { stats.gap(input.category, input.example, 'agent', phone); return 'Logged (anonymously). Now answer them honestly and helpfully.'; }
+    if (name === 'mention_feature') { stats.bump(`feature_${input.feature}_${this.operatorFor?.get(phone) ? 'operator' : input.why === 'need' ? 'need' : 'tip'}`, 1, phone); }
     if (name === 'mention_feature') { this.features.mark(phone, input.feature, this.operatorFor?.get(phone) ? 'operator' : input.why === 'need' ? 'need' : 'tip'); return 'Noted.'; }
     if (name === 'queue_feature') { this.features.queue(phone, input.feature, input.reason); return 'Saved. Finish what they are doing first; bring it up right after (it will show under "Queued" in the situation).'; }
     const shown = featureForTool(name, input); if (shown) this.features.mark(phone, shown, this.operatorFor?.get(phone) ? 'operator' : 'auto');
@@ -162,12 +167,13 @@ export class Agent {
         if (!loc) return 'Error: location unknown. Ask where they are (or use send_location_link), then save it with set_location.';
         const found = await this.discovery.search(loc, input);
         this.discovery.remember(phone, found);
+        stats.bump(`searches_${input.category || (/movie|film|showtime/i.test(input.what || '') ? 'movies' : 'general')}`, 1, phone); if (!found.length) stats.bump('searches_empty', 1, phone);
         return found.length ? `Found near ${loc.label}:\n${found.map(e => this.discovery.describe(e)).join('\n')}` : `Nothing matched near ${loc.label}. Try a broader search or different dates.`;
       }
       if (name === 'show_options') {
         const ids = [...new Set((input.event_ids || []).filter(id => eventById(id)))].slice(0, 8);
         if (!ids.length) return 'Error: use ids from find_things results.';
-        this.pendingCards.set(phone, ids);
+        this.pendingCards.set(phone, ids); stats.bump('option_sets_sent', 1, phone); stats.bump('options_shown', ids.length, phone);
         const cards = Math.min(ids.length, 3);
         return `${cards} picture card(s) will follow your text, one per message${ids.length > 3 ? `, and tapping any of them opens a page with all ${ids.length} options` : ''}. Keep your text to a short intro and don't repeat links.${ids.length > 3 ? ' Don\'t say only some are coming or offer to send the rest: the page already has them all.' : ''}`;
       }
@@ -222,7 +228,7 @@ export class Agent {
         if (name === 'message_group') { act('chat', { text: String(input.text).slice(0, 300) }); return flow.fanout ? `Sent to ${flow.fanout} people.` : 'Nobody on this plan gets texts yet; it was saved to the plan page.'; }
       }
       return `Error: ${name} is not available right now.`;
-    } catch (error) { if (error.status || /ticketmaster|seatgeek|googleapis/i.test(error.message)) return `Error: ${error.message}`; throw error; }
+    } catch (error) { stats.gap(`tool_error_${name}`, `${name} failed: ${String(error.message).slice(0, 80)}`, 'auto', phone); if (error.status || /ticketmaster|seatgeek|googleapis/i.test(error.message)) return `Error: ${error.message}`; throw error; }
   }
 
   // ---------- loop ----------

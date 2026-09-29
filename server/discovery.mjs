@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { registerEvent, eventById } from './catalog.mjs';
 import { fail } from './store.mjs';
 import { meter } from './usage.mjs';
+import { stats } from './stats.mjs';
 
 const short = s => createHash('sha1').update(String(s)).digest('base64url').slice(0, 10);
 const DAY = 86400000;
@@ -82,7 +83,7 @@ export class Discovery {
     if (!row || row.expires < Date.now()) fail(410, 'This location link expired. Text Rall-e for a new one.');
     if (!(Math.abs(lat) <= 90 && Math.abs(lng) <= 180)) fail(400, 'That location did not come through.');
     const loc = await this.reverse(Math.round(lat * 1000) / 1000, Math.round(lng * 1000) / 1000); // ~100 m precision is plenty
-    this.db.prepare('DELETE FROM location_links WHERE token=?').run(row.token);
+    this.db.prepare('DELETE FROM location_links WHERE token=?').run(row.token); stats.bump('locations_shared', 1, row.phone);
     return { phone: row.phone, location: this.saveLocation(row.phone, loc) };
   }
 

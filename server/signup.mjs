@@ -3,6 +3,7 @@
 import { createHash, randomInt, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fail, clean } from './store.mjs';
 import { normalize } from './sms.mjs';
+import { stats } from './stats.mjs';
 
 const hash = value => createHash('sha256').update(String(value)).digest('hex');
 const same = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -62,7 +63,7 @@ export class Signup {
     this.db.prepare('UPDATE signup_codes SET token=NULL WHERE phone=?').run(row.phone);
     if (!row.sent) return created; // preview-mode verification: not linked for texting
     const flow = this.sms.flow, digest = this.store.digestOf(id);
-    flow.link(row.phone, digest, state, 'host');
+    flow.link(row.phone, digest, state, 'host'); stats.bump('signups_web', 1, row.phone);
     flow.reply(row.phone, `Welcome to Rall-e, ${state.name}! This is my number — text me anytime to plan something with friends. (Rall-e demo. Reply STOP to opt out.)`, 'welcome');
     flow.sendCard(row.phone);
     return created;

@@ -48,6 +48,7 @@ export function ShareButton({ url, title, label = 'Share' }) {
   const [copied, setCopied] = React.useState(false);
   if (!url) return null;
   async function share() {
+    try { fetch('/api/stats/share', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: /night/i.test(label) ? 'night' : /ideas/i.test(label) ? 'ideas' : 'spot' }), keepalive: true }); } catch {}
     try { if (navigator.share) { await navigator.share({ title, text: title, url }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
     try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2500); } catch { prompt('Copy this link', url); }
   }
