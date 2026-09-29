@@ -26,7 +26,7 @@ const GROUPS = [
 
 export default function VaultPage({ token }) {
   const [data, setData] = useState(null), [form, setForm] = useState({}), [error, setError] = useState(''), [busy, setBusy] = useState(''), [saved, setSaved] = useState(false);
-  const [cardOpen, setCardOpen] = useState(false), [confirmDelete, setConfirmDelete] = useState(false), [deleted, setDeleted] = useState(false);
+  const [cardReady, setCardReady] = useState(false), [cardOpen, setCardOpen] = useState(false), [confirmDelete, setConfirmDelete] = useState(false), [deleted, setDeleted] = useState(false);
   const stripeRef = useRef(null), elementsRef = useRef(null), mountRef = useRef(null);
   useEffect(() => { call(token).then(d => { setData(d); setForm(d.fields); }).catch(e => setError(e.message)); }, [token]);
   async function run(name, fn) { setBusy(name); setError(''); try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(''); } }
@@ -35,9 +35,16 @@ export default function VaultPage({ token }) {
     const { clientSecret } = await call(token, '/card/start', 'POST', {});
     const stripe = await loadStripe(data.stripeKey); stripeRef.current = stripe;
     elementsRef.current = stripe.elements({ clientSecret, appearance: { theme: 'stripe', variables: { colorPrimary: '#238fd6', borderRadius: '12px', fontFamily: 'DM Sans, system-ui, sans-serif' } } });
-    setCardOpen(true);
-    setTimeout(() => elementsRef.current.create('payment', { layout: 'tabs', wallets: { applePay: 'never', googlePay: 'never' } }).mount(mountRef.current), 0);
+    setCardReady(false); setCardOpen(true); // the card form mounts once its container is on the page (effect below)
   });
+  useEffect(() => {
+    if (!cardOpen || !elementsRef.current || !mountRef.current) return;
+    const el = elementsRef.current.create('payment', { layout: 'tabs', wallets: { applePay: 'never', googlePay: 'never' } });
+    el.on('ready', () => setCardReady(true));
+    el.on('loaderror', e => setError(e?.error?.message || 'The secure card form could not load. Please try again.'));
+    el.mount(mountRef.current);
+    return () => { try { el.destroy(); } catch {} };
+  }, [cardOpen]);
   const saveCard = () => run('cardsave', async () => {
     const { error: stripeError, setupIntent } = await stripeRef.current.confirmSetup({ elements: elementsRef.current, redirect: 'if_required' });
     if (stripeError) throw new Error(stripeError.message);
@@ -56,7 +63,7 @@ export default function VaultPage({ token }) {
     <section className="vault-card">
       <h2><CreditCard size={18}/>Card for bookings</h2>
       {!data.cards ? <p className="fine">Card storage isn’t switched on yet.</p> : data.card && !cardOpen ? <div className="vault-saved-card"><div><strong>{data.card.brand} ending {data.card.last4}</strong><span>Expires {data.card.expMonth}/{String(data.card.expYear).slice(-2)}</span></div><div><button type="button" className="text-link" onClick={openCard} disabled={!!busy}>Replace</button><button type="button" className="text-link danger" onClick={() => run('rm', async () => setData(await call(token, '/card', 'DELETE')))} disabled={!!busy}>Remove</button></div></div>
-        : cardOpen ? <><div ref={mountRef} className="vault-stripe"/><button type="button" className="button primary full" onClick={saveCard} disabled={busy === 'cardsave'}>{busy === 'cardsave' ? 'Saving card…' : 'Save card'}</button></>
+        : cardOpen ? <><div ref={mountRef} className="vault-stripe"/><button type="button" className="button primary full" onClick={saveCard} disabled={busy === 'cardsave' || !cardReady}>{busy === 'cardsave' ? 'Saving card…' : cardReady ? 'Save card' : 'Loading secure card form…'}</button></>
         : <button type="button" className="button secondary full" onClick={openCard} disabled={busy === 'card'}>{busy === 'card' ? 'Opening secure form…' : 'Add a card'}</button>}
       <p className="fine">Card numbers go straight to Stripe, our payment processor. Rall-e only keeps the brand and last 4 digits. Nothing is charged: bookings aren’t live yet, and you’ll always approve the total first.</p>
     </section>
