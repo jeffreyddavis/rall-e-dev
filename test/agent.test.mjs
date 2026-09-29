@@ -127,3 +127,17 @@ test('a feature that answers a need is queued while they are mid-setup, then off
   assert.deepEqual(t.sms.flow.agent.features.seen(HOST).map(r => `${r.feature}:${r.how}`), ['vault:need']); // a need, not self-promotion
   t.store.close();
 });
+
+test('show_options with more than 3 picks: 3 preview cards, and every card opens a list with all of them', async () => {
+  const t = setup([
+    tool('start_account', { first_name: 'Mike' }), say('Hi Mike!'),
+    tool('show_options', { event_ids: ['museum', 'trail', 'dinner', 'comedy', 'rooftop'] }), body => { assert.match(body.messages.at(-1).content[0].content, /3 picture card.*all 5 options/); return say('Here are five ideas for Saturday.'); }
+  ]);
+  await t.text(HOST, 'hi I am Mike');
+  await t.text(HOST, 'give me 5 things to do saturday');
+  const links = t.out(HOST, 'option').map(r => r.body);
+  assert.equal(links.length, 3);
+  const set = /\?s=([\w-]+)/.exec(links[0])[1];
+  assert.deepEqual(t.sms.flow.options(set).ids, ['museum', 'trail', 'dinner', 'comedy', 'rooftop']);
+  t.store.close();
+});

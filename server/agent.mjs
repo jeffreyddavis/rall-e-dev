@@ -46,7 +46,7 @@ const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
 - You need their location. If "Location" below is unknown, ask where they are (neighborhood, city or ZIP) and save it with set_location, or offer send_location_link for one-tap GPS sharing. If they mention being somewhere else ("I'm in Boston this weekend"), update it.
 - Use find_things with what they want (e.g. "live jazz", "brunch", "comedy", "something outdoors"), and a date or number of days. Tailor to their interests, dietary needs and allergies.
-- Pitch 1–3 options with show_options (picture cards) plus a short intro text. If they ask for details, answer in text. When they pick one, make_plan with its id. A text like (Tapped "My pick" on X [id] on the options page) means they chose X from your cards: treat it as "let's do X" (host: make_plan or add_stop; friend: suggest) and reply briefly. A text with a rall-e.ai/e/<id> link (e.g. "Let's plan Nua (rall-e.ai/e/gp_abc)") refers to that outing id: start a plan with it (make_plan with that id; add_stop if they already have a plan going) and ask who to invite.
+- Pitch options with show_options (picture cards) plus a short intro text. Pass every option you mention (up to 8): the first 3 arrive as picture cards, and tapping any card opens a page listing all of them. If they ask for details, answer in text. When they pick one, make_plan with its id. A text like (Tapped "My pick" on X [id] on the options page) means they chose X from your cards: treat it as "let's do X" (host: make_plan or add_stop; friend: suggest) and reply briefly. A text with a rall-e.ai/e/<id> link (e.g. "Let's plan Nua (rall-e.ai/e/gp_abc)") refers to that outing id: start a plan with it (make_plan with that id; add_stop if they already have a plan going) and ask who to invite.
 - Results are live listings from Ticketmaster, SeatGeek and Google Places; availability and prices can change, and you can't buy tickets or book tables.`;
 const catalogue = () => EVENTS.map(e => `${e.id}: ${e.short} (${e.category}) at ${e.venue}, ${e.area}. ${e.time}; doors/arrival ${e.doors}; ${e.duration}; ${e.price ? `$${e.price}/person sample` : 'free'}; ${e.age}; access: ${e.accessibility} ${e.description}`).join('\n');
 
@@ -113,7 +113,7 @@ export class Agent {
     const find = live ? [
       T('find_things', `Search real things to do near them (events, restaurants, bars, activities${this.discovery.keys?.gracenote || this.discovery.keys?.serp ? ', and movies with real showtimes at nearby theaters: use category movies' : ''}).`, { what: { type: 'string', description: 'What they want, e.g. "live music", "brunch", "comedy", "something outdoors"' }, category: { type: 'string', enum: ['music', 'comedy', 'sports', 'theatre', 'arts', 'nightlife', 'dinner', 'museums', 'nature', 'movies'] }, date: { type: 'string', description: 'YYYY-MM-DD for a specific day' }, days: { type: 'integer', description: 'How many days ahead to look (default 7)' } }),
       T('set_location', 'Save where they are (neighborhood, city or ZIP) for finding things nearby.', { place: { type: 'string' } }, ['place']),
-      T('show_options', 'Show 1–3 options as picture cards (each arrives as its own message with a photo preview, after your text). Use when pitching options you found.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 3 } }, ['event_ids']),
+      T('show_options', 'Show options as picture cards after your text. Pass EVERY option you mention in your text (up to 8), best first: the first 3 arrive as picture cards (one message each, with a photo preview) and tapping any card opens a page listing all of them with details and My pick.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 } }, ['event_ids']),
       T('send_location_link', 'Text them a one-tap link to share their current location from their phone.')] : [];
     const common = [
       T('mention_feature', 'Call this whenever your reply offers or points out one of Rall-e\'s features (see "Features" in the situation), so you don\'t repeat it. why=need when it answers something they just said or asked; why=tip when unprompted.', { feature: { type: 'string', enum: FEATURES.map(f => f.id) }, why: { type: 'string', enum: ['need', 'tip'] } }, ['feature', 'why']),
@@ -164,10 +164,11 @@ export class Agent {
         return found.length ? `Found near ${loc.label}:\n${found.map(e => this.discovery.describe(e)).join('\n')}` : `Nothing matched near ${loc.label}. Try a broader search or different dates.`;
       }
       if (name === 'show_options') {
-        const ids = (input.event_ids || []).filter(id => eventById(id)).slice(0, 3);
+        const ids = [...new Set((input.event_ids || []).filter(id => eventById(id)))].slice(0, 8);
         if (!ids.length) return 'Error: use ids from find_things results.';
         this.pendingCards.set(phone, ids);
-        return `${ids.length} picture card(s) will follow your text, one per message, each showing the photo, name, date and place. Keep your text to a short intro (e.g. "Here are a few options for Sat night. Any of these look good?") and don't repeat the details or links.`;
+        const cards = Math.min(ids.length, 3);
+        return `${cards} picture card(s) will follow your text, one per message${ids.length > 3 ? `, and tapping any of them opens a page with all ${ids.length} options` : ''}. Keep your text to a short intro and don't repeat links.${ids.length > 3 ? ' Don\'t say only some are coming or offer to send the rest: the page already has them all.' : ''}`;
       }
       if (name === 'set_location') {
         const loc = this.discovery.saveLocation(phone, await this.discovery.geocode(input.place));

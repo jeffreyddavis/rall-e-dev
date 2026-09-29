@@ -129,8 +129,9 @@ export class TextFlow {
     // All cards in one reply share an option set, so each link opens a page listing every option with "My pick".
     const set = cards.length ? this.optionSet(phone, cards) : '';
     // Render the preview images first: iMessage builds the card as the link is sent, and a slow image leaves a grey box.
-    if (cards.length && this.sms.og) await Promise.race([Promise.all(cards.map(id => this.sms.og.render(eventById(id)).catch(() => null))), new Promise(r => setTimeout(r, 8000))]);
-    for (const id of cards) this.sms.deliver(phone, `${this.sms.base || 'https://rall-e.ai'}/e/${id}?s=${set}`, { kind: 'option' });
+    if (cards.length && this.sms.og) await Promise.race([Promise.all(cards.slice(0, 3).map(id => this.sms.og.render(eventById(id)).catch(() => null))), new Promise(r => setTimeout(r, 8000))]);
+    // At most 3 preview cards (more floods the thread); the set behind every card holds all the options.
+    for (const id of cards.slice(0, 3)) this.sms.deliver(phone, `${this.sms.base || 'https://rall-e.ai'}/e/${id}?s=${set}`, { kind: 'option' });
     if (this.threadsFor(phone).length) this.sendCard(phone); // once per phone; no-op afterwards
   }
   // ---------- joining a shared night ----------
