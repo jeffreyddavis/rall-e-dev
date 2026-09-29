@@ -21,4 +21,4 @@ Phone verification uses the displayed demo code `123456`; no OTP is sent. Email/
 
 Existing fictional event fixtures remain clearly labeled sample outings; reference photos do not establish real availability, booking or artist participation. Nature and museum use the prior original illustrations because the archive supplied photos only for dining, comedy and nightlife.
 
-Twilio's invitation/RSVP adapter is separate and disabled pending credentials. Full discovery, planning and follow-up via live SMS still needs connection. It must not be described as complete based on the browser demo.
+Two-way texting is built: hosts can plan and guests can RSVP, suggest, vote, ask and chat by SMS, with group updates on every change. It is exercised in the `/lab` simulator and in tests. Outbound uses the verified A2P messaging service once an allowlist and live mode are set. Real inbound still waits on routing, because the current sender’s webhook belongs to Field CRM. Don't describe live SMS as working until a real tester round-trip has been verified.

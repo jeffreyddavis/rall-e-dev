@@ -2,9 +2,9 @@
 
 A conversational Hollywood outing demo: discover an idea, bring friends in through personal links, collect text/web responses and suggestions, and confirm one shared plan. The business export takes precedence over the older brief: booking, cost splitting, payments, and calendar connectors are excluded.
 
-**Live demo: https://rall-e.joinfitapp.com**
+**Live demo: https://rall-e.ai** (rall-e.joinfitapp.com and www redirect here)
 
-Deployed September 27, 2026 on the existing EC2 host with its own Apache virtual host, isolated Node 24.21.0 runtime, systemd service, and SQLite data directory. Updated from the supplied Rally Figma exports: blue/white branding, photo-led invitations, signup preview states, and RSVP/vote confirmation. The primary product experience is SMS; browser chat is a presenter preview. Event inventory and scheduled nudges remain simulations; Bedrock is optional and not connected. The Twilio invitation/RSVP adapter is installed but disabled pending configuration. See [design review](design-reference/REVIEW.md) and [Twilio setup](ops/TWILIO_SETUP.md).
+Deployed September 27, 2026 on the existing EC2 host with its own Apache virtual host, isolated Node 24.21.0 runtime, systemd service, and SQLite data directory. Updated from the supplied Rally Figma exports: blue/white branding, photo-led invitations, signup preview states, and RSVP/vote confirmation. The primary product experience is SMS; browser chat is a presenter preview. Event inventory and scheduled nudges remain simulations; Bedrock is optional and not connected. **Two-way event collaboration by text is built**: a host can plan entirely over SMS, and guests can RSVP, suggest, vote, ask questions and message the group, with every plan change fanned out to everyone on text. Rehearse it at `/lab` (presenter password) with fictional phones. Twilio credentials are verified and US outbound rides the verified A2P messaging service. Live sending stays off until tester numbers are listed, and incoming SMS on the current sender still belongs to another app, so real inbound texts wait on a routing decision. See [design review](design-reference/REVIEW.md) and [Twilio setup](ops/TWILIO_SETUP.md).
 
 ## Run locally
 
@@ -29,7 +29,8 @@ Environment files are not automatically loaded. To use an optional local `.env`,
 4. In Mike’s **Texts** view, reply YES. The same RSVP appears on the shared page. Change it to Maybe and back on the page. Joining never silently opts the guest into texts.
 5. Suggest dinner instead. Other guests can vote. The host chooses the suggestion, optionally adds comedy as a second stop, and confirms. All views update within three seconds.
 6. Preview the group text, then mark the outing as happened to update preferences. Nothing is purchased or sent.
-7. Presenter controls demonstrate an unfinished-plan follow-up or a weekend recommendation (after opt-in). Each preview is deduplicated. Reset affects only this browser’s demo and invalidates its guest links.
+7. **Text lab:** open `/lab`, enter the SMS presenter password, and play the host and three friends on fictional 555 phones. Host: `Hi` → name → `YES` → a vibe (`4` or “comedy”) → `YES` → “Mike 310-555-0102, Dave 310-555-0103, Sarah 310-555-0104”. Friends: `YES`, “how about dinner instead?”, `VOTE 1`, “what time?”, or any message (relayed to the group). Host: `PICK 1`, `CONFIRM`, `STATUS`, `HELP`. In Presenter controls → Text approved testers, **Text me this plan’s updates** links your real phone to a web-created plan.
+8. Presenter controls demonstrate an unfinished-plan follow-up or a weekend recommendation (after opt-in). Each preview is deduplicated. Reset affects only this browser’s demo and invalidates its guest links.
 
 ## What is real
 
@@ -43,7 +44,7 @@ Environment files are not automatically loaded. To use an optional local `.env`,
 | Event catalogue | Five fictional Hollywood-area fixtures with sample prices, times, and access details |
 | Conversation by default | Local narrow intent matching and grounded sample answers; freely typed but not a general LLM |
 | Optional AI | AWS Bedrock Converse for contextual wording; no tools or authority to mutate state; 12-second fallback |
-| SMS and MMS | Browser Texts and MMS remain previews. Optional Twilio invitation/confirmation sends and RSVP replies are implemented but disabled; full conversational SMS is still pending |
+| SMS collaboration | Real conversation engine (`server/textflow.mjs`): host planning by text, guest RSVP/suggest/vote/Q&A/group chat, group fan-out on every change (web or text). Exercised in the `/lab` simulator and tests. Live sends go only to allowlisted testers via the A2P messaging service. Real inbound needs the webhook routed to Rall-e (not yet — the number serves another product). Browser Texts view and MMS remain previews |
 | Proactive scheduling | Presenter-triggered preview, opt-in and deduplication; no cron or background sends |
 | STOP / HELP | Simulated state and informational replies; web RSVP remains available after STOP |
 | Signup | Figma-derived landing, welcome, profile, phone/code and Google preview states; first-name-only demo identity |
@@ -69,7 +70,7 @@ npm run build
 
 State tests cover persisted shared data, guest/host scope, locked plans, invalid/expired tokens, reset isolation, consent/STOP, nudge deduplication, preference updates, and stop/suggestion limits. Browser tests exercise independent host/guest sessions, text/web response synchronization, suggestions, confirmation, refresh, mobile overflow, invalid links, origin checks, and dialog dismissal. Generated visual QA images are in `screenshots/`.
 
-Verified September 27, 2026: **13/13 state/SMS tests, 4/4 design/browser checks, 1/1 gated SMS preview check, and Vite production build passed locally**. Desktop (1440px) and mobile (375px/390px) screenshots were reviewed. The remote site is deployed; Docker execution, live AWS Bedrock, and real messaging have not been verified.
+Verified September 28, 2026: **19/19 state/SMS/text-collaboration tests** after adding two-way texting; the text lab and “text me this plan” flows were exercised in a headless browser (desktop and 390px mobile, no console errors). Earlier: **4/4 design/browser checks, 1/1 gated SMS preview check, and Vite production build passed locally**. Desktop (1440px) and mobile (375px/390px) screenshots were reviewed. The remote site is deployed; Docker execution, live AWS Bedrock, and real messaging have not been verified. Live Twilio sends remain off.
 
 ## Existing AWS host
 
@@ -103,6 +104,6 @@ Rollback: disable only the new virtual host and stop only the `rally-demo` Compo
 
 ## Prototype limits
 
-This is a small trusted-demo application, not a public signup service. Invitation URLs confer access to that guest’s RSVP; do not forward them. There is no identity verification, recovery, enabled outbound messaging, provider retrieval, live availability, time-conflict solver, production anti-abuse layer, scheduled worker, or cross-device host login. Illustrative itinerary times may overlap; host judgment is required. Personal guest links expire after seven days. The demo uses one process and SQLite; do not scale replicas against separate databases.
+This is a small trusted-demo application, not a public signup service. Invitation URLs confer access to that guest’s RSVP; do not forward them. There is no identity verification, recovery, enabled live messaging, routed inbound SMS, provider retrieval, live availability, time-conflict solver, production anti-abuse layer, scheduled worker, or cross-device host login. Illustrative itinerary times may overlap; host judgment is required. Personal guest links expire after seven days. The demo uses one process and SQLite; do not scale replicas against separate databases.
 
 Next investments should be the existing signup flow, one verified conversational provider, approved tester SMS, and one narrow Hollywood discovery source—only after the visible loop is accepted.

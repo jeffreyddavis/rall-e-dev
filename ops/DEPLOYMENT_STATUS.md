@@ -52,3 +52,33 @@ Deployment used the host's Apache conventions and kept Rall-e in a separate dire
 - Existing SQLite data retained. Only `rally-demo` was restarted; Apache configuration and other sites were not changed.
 - Validation: Vite build passed; 13/13 local state/SMS tests passed; 4/4 core browser checks and 1/1 SMS preview check passed locally; 4/4 public HTTPS browser checks passed (40.7 seconds).
 - Rollback: repoint `/opt/rally-demo/current` to `20260927-001` and restart only `rally-demo`. SMS tables are additive and do not prevent the prior app reading existing plan state.
+
+## Two-way texting release — September 28, 2026
+
+- Active release: `/opt/rally-demo/releases/20260928-001` (deployed with `.local/deploy-sms.cmd`). Previous release retained for rollback.
+- New `/etc/rally-demo.env` (root, 600): `SMS_MODE=preview`, `PUBLIC_BASE_URL`, `SMS_OPERATOR_KEY` only. No Twilio credentials on the server, so nothing can be sent.
+- The remote script checked health, HTTPS health, `/lab` 200, and a rejected wrong-password lab call (403). 19/19 unit tests passed before the build. `/lab` was confirmed loading publicly afterward.
+- SQLite changes are additive (`sms_log`, `sms_threads`, `sms_pending`). To roll back, repoint `current` to the prior release, then restart `rally-demo`.
+
+## rall-e.ai domain — September 28, 2026
+
+- Mike registered `rall-e.ai` at Cloudflare (free plan). DNS has `@` and `www` A records → `13.57.102.105`, set to **DNS only** (grey cloud). Turning on the orange-cloud proxy later requires SSL mode Full (strict).
+- `.local/setup-domain.cmd` does the server setup. It:
+  - issues a Let's Encrypt certificate for `rall-e.ai` and `www.rall-e.ai` through the existing webroot (expires December 27, 2026; the certbot timer renews it, and the deploy hook now reloads Apache for either lineage);
+  - adds `/etc/apache2/sites-available/rall-e.ai.conf`, where `rall-e.ai` is canonical and `www` redirects 301;
+  - redirects `rall-e.joinfitapp.com` 301 to `rall-e.ai` with the path preserved, so old invite links still work. Its own certificate still renews.
+- `/etc/rally-demo.env` `PUBLIC_BASE_URL=https://rall-e.ai`. The Twilio webhook should be `https://rall-e.ai/api/twilio/inbound`.
+- Apache backup is at `/home/ubuntu/apache-backup-20260928204124`. Checks passed on the server (health, `/lab`, redirects) and from a browser.
+
+## Deploys run by Claude — September 28, 2026 (evening)
+
+- Jeff turned on "All domains" network access. Claude's Cowork Linux shell on Jeff's PC can now reach the server over SSH. Its traffic leaves from Jeff's home IP (24.236.208.253), which the security group already allows. It can also reach Twilio and the Claude API.
+- Deploy command, run by Claude: `bash .local/deploy.sh live` (or `preview`). It:
+  - builds in a clean Linux copy (`~/rally-build`);
+  - runs all 25 tests and the Vite build;
+  - fixes file permissions;
+  - uploads the release and a config generated from `.env`;
+  - activates with `deploy-sms.sh`, which rolls back automatically on a failed health check.
+- The Windows `.cmd` scripts still work, but are no longer needed.
+- Release `20260929-005806` is live: phone-first signup, the contact card (`/rall-e.vcf`), and the texting agent code, with the agent OFF until `ANTHROPIC_API_KEY` is set.
+- The first attempt (`20260929-005620`) failed its health check because the files were owner-only and the service couldn't read them. It was rolled back automatically, and `deploy.sh` now fixes permissions.

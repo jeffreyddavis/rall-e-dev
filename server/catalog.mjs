@@ -6,7 +6,11 @@ export const EVENTS = [
   { id: 'dinner', category: 'dinner', title: 'A table worth gathering around', short: 'Dinner at Casa Vera', venue: 'Casa Vera', area: 'Hollywood', time: 'Saturday · 6:00 PM', doors: 'Opens at 5:00 PM', duration: '90 minutes', price: 35, age: 'All ages', tag: 'Pass the plates. Stay a little longer.', description: 'Seasonal small plates, a leafy courtyard, and an unhurried evening with your favorite people. $35 is a sample per-person estimate.', accessibility: 'Step-free courtyard access.', color: 'dinner', source: 'Rall-e curated demo', fictional: true },
   { id: 'museum', category: 'museums', title: 'A fresh way to see the city', short: 'After-hours art', venue: 'The Westlight Gallery', area: 'Hollywood', time: 'Saturday · 4:00 PM', doors: '3:30 PM', duration: '90 minutes', price: 12, age: 'All ages', tag: 'A little curiosity goes a long way.', description: 'An easy afternoon of photography and contemporary art, with plenty to talk about after. No art-history degree required.', accessibility: 'Step-free entry and accessible restrooms.', color: 'museum', source: 'Rall-e curated demo', fictional: true }
 ];
-export const eventById = id => EVENTS.find(e => e.id === id);
+// Real outings found by discovery (Ticketmaster, SeatGeek, Google Places) are registered here at runtime,
+// so plans can reference them exactly like the built-in sample outings.
+const discovered = new Map();
+export const registerEvent = e => { discovered.set(e.id, e); return e; };
+export const eventById = id => EVENTS.find(e => e.id === id) || discovered.get(id);
 export const categoryFrom = text => {
   if (/hik|outdoor|nature|walk|trail|sunset/i.test(text)) return 'nature';
   if (/comed|laugh|stand.?up/i.test(text)) return 'comedy';

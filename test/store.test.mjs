@@ -100,3 +100,22 @@ test('one suggestion per guest, three stops maximum, and input validation',()=>{
   assert.throws(()=>store.guestAction(invite,'rsvp',{response:'invalid'}),/Try YES/);
   store.close();
 });
+
+test('the host evening link reads the night without invite tokens and can adopt a friend’s idea', async () => {
+  const { Store } = await import('../server/store.mjs'), { EVENTS } = await import('../server/catalog.mjs');
+  const store = new Store(':memory:'), { id } = store.create('Jeff');
+  store.hostAction(id, 'location'); store.hostAction(id, 'vibe', { category: 'dinner' }); store.hostAction(id, 'accept');
+  const s = store.hostAction(id, 'mode', { mode: 'loose' }); const s2 = store.hostAction(id, 'invite', { names: ['Mike'] });
+  const mike = s2.plan.participants[0], other = EVENTS.find(e => !s2.plan.stops.includes(e.id));
+  store.guestAction(mike.invite, 'suggest', { eventId: other.id });
+  const token = store.nightLink(store.digestOf(id)), night = store.night(token);
+  const view = store.view(night.s, 'host');
+  assert.equal(view.plan.suggestions.length, 1); assert.ok(view.plan.participants.every(p => !p.invite));
+  const after = store.hostActionAt(night.digest, 'addStop', { eventId: other.id, suggestion: view.plan.suggestions[0].id });
+  assert.ok(after.plan.stops.includes(other.id)); assert.equal(after.plan.suggestions.length, 0);
+  assert.equal(after.plan.title, after.plan.stops.map(id => EVENTS.find(e => e.id === id).short).join(' + ')); // renamed after its stops
+  const share = store.shareToken(after, night.digest); assert.equal(store.shareToken(after, night.digest), share); // stable
+  assert.equal(store.shared(share).plan.title, after.plan.title); assert.throws(() => store.shared('y'.repeat(12)), /isn’t available/);
+  assert.throws(() => store.night('x'.repeat(24)), /expired/);
+  store.close();
+});
