@@ -59,7 +59,7 @@ export class Agent {
     this.key = env.ANTHROPIC_API_KEY || ''; this.model = env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
     this.effort = env.ANTHROPIC_EFFORT || 'low'; this.timeout = Number(env.AGENT_TIMEOUT_MS) || 25000;
     // Backup brain: if Claude is down, the same conversation continues on OpenAI (same prompt, tools and history).
-    this.openaiKey = env.OPENAI_API_KEY || ''; this.openaiModel = env.OPENAI_MODEL || 'gpt-6-sol'; this.openaiEffort = env.OPENAI_REASONING_EFFORT ?? 'low';
+    this.openaiKey = env.OPENAI_API_KEY || ''; this.openaiModel = env.OPENAI_MODEL || 'gpt-6-sol'; this.openaiEffort = env.OPENAI_REASONING_EFFORT ?? 'none'; // Chat Completions only allows function tools with reasoning off on GPT-6
     this.claudeDownUntil = 0; // after a Claude outage error, skip straight to the backup for a couple of minutes
     this.enabled = Boolean(this.key) && env.SMS_AGENT !== 'off'; this.pendingEmoji = new Map(); this.pendingCards = new Map(); this.features = new FeatureLog(flow.db);
   }
@@ -272,7 +272,12 @@ export class Agent {
     };
     let result;
     try { result = await post(payload); }
-    catch (error) { if (error.status === 400 && /reasoning/i.test(error.message)) { delete payload.reasoning_effort; result = await post(payload); } else throw error; } // older models
+    catch (error) {
+      if (error.status !== 400 || !/reasoning/i.test(error.message)) throw error;
+      // Models differ: some want reasoning off with tools ("none"), older ones don't know the parameter at all.
+      if (payload.reasoning_effort !== 'none' && /none/.test(error.message)) payload.reasoning_effort = 'none'; else delete payload.reasoning_effort;
+      result = await post(payload);
+    }
     meter.openai(result.usage);
     const msg = result.choices?.[0]?.message || {}, uses = (msg.tool_calls || []).map(c => ({ type: 'tool_use', id: c.id, name: c.function.name, input: (() => { try { return JSON.parse(c.function.arguments || '{}'); } catch { return {}; } })() }));
     return { content: [...(msg.content ? [{ type: 'text', text: msg.content }] : []), ...uses], stop_reason: uses.length ? 'tool_use' : 'end_turn', backup: true };
