@@ -86,7 +86,8 @@ export class Sms {
       if (this.failedAuth.get(source)?.until > Date.now()) fail(429, 'Wait a minute before trying again.');
       this.failedAuth.delete(source); return 'viewer';
     }
-    this.authorize(value, source); return 'operator';
+    try { this.authorize(value, source); } catch (e) { if (e.status === 403) fail(403, 'That key didn’t work.'); throw e; }
+    return 'operator';
   }
   publicRow(row) { return { id: row.id, participant: row.participant, kind: row.kind, recipient: mask(row.recipient), body: row.body, status: row.status, error: row.error, created: row.created }; }
   status(session) {

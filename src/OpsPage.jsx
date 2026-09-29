@@ -3,8 +3,8 @@ import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, Refr
 import { Wordmark } from './Design.jsx';
 import './ops.css';
 
-// Demo operator console (/ops): watch real conversations and have Rall-e show off a feature to someone at the right
-// moment during a VC demo. Short-term tool; protected by the operator key.
+// Dashboard (/ops): live conversations and service usage. The operator key also gets controls to have Rall-e show off
+// a feature, send a text or wipe a conversation; other keys see only the plain dashboard, with no sign that more exists.
 const last4 = p => `••• ${p.slice(-4)}`;
 const ago = t => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
 const getKey = () => { try { return sessionStorage.getItem('rall-e-ops') || ''; } catch { return ''; } };
@@ -29,11 +29,11 @@ export default function OpsPage() {
   useEffect(() => { if (!key) return; loadUsage(); const t = setInterval(loadUsage, 120000); return () => clearInterval(t); }, [key]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); }, [toast]);
 
-  if (!key) return <main className="ops"><header className="ops-top"><Wordmark/><span>Demo console</span></header>
+  if (!key) return <main className="ops"><header className="ops-top"><Wordmark/><span>Dashboard</span></header>
     <form className="ops-card ops-login" onSubmit={e => { e.preventDefault(); try { sessionStorage.setItem('rall-e-ops', draftKey); } catch {} setKey(draftKey); setError(''); }}>
-      <h1>Access key</h1><p>Enter the key you were given. Operators can have Rall-e send texts; view-only keys can watch conversations and usage.</p>
+      <h1>Access key</h1><p>Enter the key you were given.</p>
       <input type="password" value={draftKey} onChange={e => setDraftKey(e.target.value)} autoFocus placeholder="Access key"/>
-      <button className="button primary" disabled={draftKey.length < 24}>Open console</button>{error && <p className="error">{error}</p>}
+      <button className="button primary" disabled={draftKey.length < 24}>Open dashboard</button>{error && <p className="error">{error}</p>}
     </form></main>;
 
   const people = data?.people || [], person = people.find(p => p.phone === phone), seen = new Set((thread?.features || []).map(f => f.feature));
@@ -41,12 +41,12 @@ export default function OpsPage() {
   async function run(fn, done) { setBusy(true); setError(''); try { await fn(); setToast(done); } catch (e) { setError(e.message); } finally { setBusy(false); } }
   const nudge = () => run(async () => { await call('nudge', { phone, feature, note }); setFeature(''); setNote(''); }, `Rall-e is writing to ${who}…`);
   const sendExact = () => run(async () => { await call('say', { phone, text: say }); setSay(''); setShowSay(false); }, `Sent to ${who}.`);
-  const chosen = data?.features.find(f => f.id === feature);
-  const viewer = data?.role === 'viewer';
+  const chosen = data?.features?.find(f => f.id === feature);
+  const viewer = data?.role !== 'operator'; // anything but the operator key sees the plain dashboard
   const alerts = (usage?.cards || []).filter(c => ['critical', 'warn'].includes(c.status));
 
   return <main className={`ops ${phone ? 'has-person' : ''}`}>
-    <header className="ops-top"><Wordmark/><span>Demo console</span>{data && (viewer ? <b className="view">View only</b> : <b className={data.live ? 'live' : ''}>{data.live ? 'LIVE: texts really send' : 'Preview'}</b>)}</header>
+    <header className="ops-top"><Wordmark/><span>Dashboard</span>{data && !viewer && <b className={data.live ? 'live' : ''}>{data.live ? 'LIVE: texts really send' : 'Preview'}</b>}</header>
     <nav className="ops-tabs">
       <button className={tab === 'people' ? 'on' : ''} onClick={() => setTab('people')}><Users size={15}/>Conversations</button>
       <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
@@ -91,7 +91,7 @@ export default function OpsPage() {
           </div>)}
           <div ref={end}/>
         </div>
-        {viewer ? <p className="ops-viewonly">View only. Conversations update live; texts are sent by the Rall-e team.</p> : <div className="ops-controls">
+        {viewer ? null : <div className="ops-controls">
           <h3><Sparkles size={15}/>Have Rall-e show {who} a feature</h3>
           <div className="ops-features">{(data?.features || []).map(f => <button key={f.id} className={`${feature === f.id ? 'on' : ''} ${seen.has(f.id) ? 'seen' : ''}`} onClick={() => setFeature(feature === f.id ? '' : f.id)} title={f.pitch}>
             {seen.has(f.id) && <Check size={13}/>}{f.label}</button>)}</div>

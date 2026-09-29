@@ -26,6 +26,6 @@ test('demo console roles: the viewer key can only look; the operator key can act
   const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'o'.repeat(30), OPS_VIEWER_KEY: 'v'.repeat(30) });
   assert.equal(sms.opsRole('o'.repeat(30), 'a'), 'operator');
   assert.equal(sms.opsRole('v'.repeat(30), 'a'), 'viewer');
-  assert.throws(() => sms.opsRole('nope', 'b'), /password/);
+  assert.throws(() => sms.opsRole('nope', 'b'), /That key didn’t work/);
   store.close();
 });
