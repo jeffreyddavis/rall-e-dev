@@ -5,6 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { registerEvent, eventById } from './catalog.mjs';
 import { fail } from './store.mjs';
+import { meter } from './usage.mjs';
 
 const short = s => createHash('sha1').update(String(s)).digest('base64url').slice(0, 10);
 const DAY = 86400000;
@@ -42,6 +43,7 @@ export class Discovery {
   get sources() { return ['ticketmaster', 'seatgeek', 'google', 'gracenote', 'serp'].filter(k => this.keys[k]).map(k => ({ ticketmaster: 'Ticketmaster', seatgeek: 'SeatGeek', google: 'Google Places', gracenote: 'Gracenote showtimes', serp: 'Google showtimes (SerpApi)' })[k]); }
   async get(url, init = {}, timeout = 8000) {
     const response = await this.fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
+    meter.call(url, response.headers);
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`${new URL(url).host} ${response.status}: ${result?.error?.message || result?.fault?.faultstring || 'error'}`);
     return result;
@@ -249,11 +251,12 @@ export class Discovery {
   // Google photo bytes, fetched server-side so the API key never leaves the server.
   async placePhoto(e) {
     if (e?.posterRef && this.keys.gracenote && /^[\w/.-]+$/.test(e.posterRef)) {
-      const r = await this.fetch(`https://demo.tmsimg.com/${e.posterRef}?api_key=${this.keys.gracenote}`, { signal: AbortSignal.timeout(8000) }).catch(() => null);
+      const r = await this.fetch(`https://demo.tmsimg.com/${e.posterRef}?api_key=${this.keys.gracenote}`, { signal: AbortSignal.timeout(8000) }).catch(() => null); meter.call('https://demo.tmsimg.com/x');
       const type = r?.headers.get('content-type') || '';
       return r?.ok && type.startsWith('image/') ? { type, bytes: Buffer.from(await r.arrayBuffer()) } : null;
     }
     if (!e?.photoRef || !this.keys.google || !/^places\/[\w-]+\/photos\/[\w-]+$/.test(e.photoRef)) return null;
+    meter.call(`https://places.googleapis.com/v1/${e.photoRef}/media`);
     const r = await this.fetch(`https://places.googleapis.com/v1/${e.photoRef}/media?maxWidthPx=1200&key=${this.keys.google}`, { signal: AbortSignal.timeout(8000) });
     const type = r.headers.get('content-type') || '';
     return r.ok && type.startsWith('image/') ? { type, bytes: Buffer.from(await r.arrayBuffer()) } : null;

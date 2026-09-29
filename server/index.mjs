@@ -8,6 +8,7 @@ import { conversationReply } from './ai.mjs';
 import { Sms, normalize as normalizePhone } from './sms.mjs';
 import { Signup } from './signup.mjs';
 import { FEATURES, featureById } from './features.mjs';
+import { usageReport } from './usage.mjs';
 import { OgImages } from './og.mjs';
 import { eventById } from './catalog.mjs';
 
@@ -132,6 +133,7 @@ const server = http.createServer(async (req, res) => {
         // Demo operator console: see real conversations and have Rall-e show off a feature to someone. Operator key only.
         sms.authorize(req.headers.authorization?.replace(/^Bearer /, ''), req.socket.remoteAddress);
         if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, { people: sms.opsPeople(), features: FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch })), live: sms.live });
+        if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
         if (req.method !== 'POST') fail(405, 'Method not allowed.');
         const input = await body(req), phone = normalizePhone(input.phone || '');

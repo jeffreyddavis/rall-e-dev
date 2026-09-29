@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw } from 'lucide-react';
+import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './ops.css';
 
@@ -14,6 +14,7 @@ export default function OpsPage() {
   const [data, setData] = useState(null), [phone, setPhone] = useState(''), [thread, setThread] = useState(null);
   const [feature, setFeature] = useState(''), [note, setNote] = useState(''), [say, setSay] = useState(''), [showSay, setShowSay] = useState(false);
   const [busy, setBusy] = useState(false), [toast, setToast] = useState(''), end = useRef(null);
+  const [tab, setTab] = useState('people'), [usage, setUsage] = useState(null), [loadingUsage, setLoadingUsage] = useState(false);
   async function call(path, input) {
     const r = await fetch(`/api/ops/${path}`, { method: input ? 'POST' : 'GET', headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' }, ...(input ? { body: JSON.stringify(input) } : {}) });
     const d = await r.json(); if (r.status === 401 || r.status === 403 && /key|operator|password/i.test(d.error || '')) { setKey(''); try { sessionStorage.removeItem('rall-e-ops'); } catch {} }
@@ -22,6 +23,9 @@ export default function OpsPage() {
   useEffect(() => { if (!key) return; let on = true; const tick = () => call('people').then(d => on && setData(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 5000); return () => { on = false; clearInterval(t); }; }, [key]);
   useEffect(() => { if (!key || !phone) return; let on = true; const tick = () => call(`thread?phone=${encodeURIComponent(phone)}`).then(d => on && setThread(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 2500); return () => { on = false; clearInterval(t); }; }, [key, phone]);
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [thread?.messages?.length]);
+  const loadUsage = () => { setLoadingUsage(true); return call('usage').then(setUsage).catch(e => setError(e.message)).finally(() => setLoadingUsage(false)); };
+  // Usage: on open, then every 2 minutes (it calls provider APIs, so not too often). Also feeds the header alert.
+  useEffect(() => { if (!key) return; loadUsage(); const t = setInterval(loadUsage, 120000); return () => clearInterval(t); }, [key]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); }, [toast]);
 
   if (!key) return <main className="ops"><header className="ops-top"><Wordmark/><span>Demo console</span></header>
@@ -37,11 +41,28 @@ export default function OpsPage() {
   const nudge = () => run(async () => { await call('nudge', { phone, feature, note }); setFeature(''); setNote(''); }, `Rall-e is writing to ${who}…`);
   const sendExact = () => run(async () => { await call('say', { phone, text: say }); setSay(''); setShowSay(false); }, `Sent to ${who}.`);
   const chosen = data?.features.find(f => f.id === feature);
+  const alerts = (usage?.cards || []).filter(c => ['critical', 'warn'].includes(c.status));
 
   return <main className={`ops ${phone ? 'has-person' : ''}`}>
     <header className="ops-top"><Wordmark/><span>Demo console</span>{data && <b className={data.live ? 'live' : ''}>{data.live ? 'LIVE: texts really send' : 'Preview'}</b>}</header>
+    <nav className="ops-tabs">
+      <button className={tab === 'people' ? 'on' : ''} onClick={() => setTab('people')}><Users size={15}/>Conversations</button>
+      <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
+    </nav>
+    {tab === 'people' && alerts.length > 0 && <button className={`ops-alert ${alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}`} onClick={() => setTab('usage')}>⚠ {alerts.map(c => c.name.split(' (')[0]).join(', ')} {alerts.length === 1 ? 'needs' : 'need'} attention before a demo</button>}
     {error && <p className="error ops-error" role="alert">{error}</p>}
-    <div className="ops-grid">
+    {tab === 'usage' && <section className="ops-usage">
+      <div className="ops-usage-head"><h2>Service usage</h2><span>{usage ? `Checked ${ago(usage.at)}` : ''}</span><button className="ops-link" disabled={loadingUsage} onClick={loadUsage}><RefreshCw size={14} className={loadingUsage ? 'spin' : ''}/>Refresh</button></div>
+      {!usage && <LoaderCircle className="spin"/>}
+      <div className="ops-usage-grid">{(usage?.cards || []).map(c => <article key={c.id} className={`ops-usage-card ${c.status}`}>
+        <header><strong>{c.name}</strong><em>{({ ok: 'OK', warn: 'Getting close', critical: 'Upgrade now', unknown: 'Can’t check', off: 'Not connected' })[c.status]}</em></header>
+        {c.meter && <div className="ops-meter"><div style={{ width: `${Math.min(100, c.meter.limit ? c.meter.used / c.meter.limit * 100 : 0)}%` }}/></div>}
+        {c.meter && <p className="ops-meter-text">{c.meter.used.toLocaleString()} of {c.meter.limit.toLocaleString()} {c.meter.unit}</p>}
+        <ul>{c.facts.map((f, i) => <li key={i}>{f}</li>)}</ul>
+        {c.link && <a href={c.link} target="_blank" rel="noreferrer"><ExternalLink size={13}/>Manage / upgrade</a>}
+      </article>)}</div>
+    </section>}
+    {tab === 'people' && <div className="ops-grid">
       <section className="ops-people">
         <h2>People <small>{people.length}</small></h2>
         {!data && <LoaderCircle className="spin"/>}
@@ -73,7 +94,7 @@ export default function OpsPage() {
           {showSay && <div className="ops-say"><textarea value={say} onChange={e => setSay(e.target.value)} rows={2} maxLength={1000} placeholder="Exactly what Rall-e should send"/><button className="button secondary" disabled={busy || !say.trim()} onClick={sendExact}><Send size={15}/>Send</button></div>}
         </div>
       </section>}
-    </div>
+    </div>}
     {toast && <div className="ops-toast" role="status">{toast}</div>}
   </main>;
 }

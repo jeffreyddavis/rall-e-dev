@@ -5,6 +5,7 @@ import { TextFlow } from './textflow.mjs';
 import { Vault } from './vault.mjs';
 import { Discovery } from './discovery.mjs';
 import { Sendblue } from './sendblue.mjs';
+import { meter } from './usage.mjs';
 
 const digest = value => createHash('sha256').update(value || '').digest('hex');
 export const normalize = value => {
@@ -62,6 +63,7 @@ export class Sms {
       CREATE TABLE IF NOT EXISTS phone_services (phone TEXT PRIMARY KEY, service TEXT NOT NULL, source TEXT NOT NULL, at INTEGER NOT NULL);`);
     if (!this.db.prepare("SELECT 1 FROM pragma_table_info('sms_log') WHERE name='media'").get()) this.db.exec('ALTER TABLE sms_log ADD COLUMN media TEXT');
     this.vault = new Vault(store, this, env, fetchImpl);
+    meter.attach(this.db);
     this.discovery = new Discovery(store, env, fetchImpl);
     this.flow = new TextFlow(store, this);
   }

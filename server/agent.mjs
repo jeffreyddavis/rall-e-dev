@@ -3,6 +3,7 @@
 // becomes one reply to the sender, and group notifications come from the deterministic fan-out in TextFlow.
 // Every text still goes through Sms.deliver() (live/preview, tester allowlist, STOP, caps).
 import { FEATURES, FeatureLog, featureForTool } from './features.mjs';
+import { meter } from './usage.mjs';
 import { EVENTS, MAX_STOPS, eventById } from './catalog.mjs';
 
 const CATEGORIES = ['dinner', 'live shows', 'comedy', 'museums', 'nature'];
@@ -231,6 +232,7 @@ export class Agent {
       headers: { 'content-type': 'application/json', 'x-api-key': this.key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body)
     });
     const result = await response.json();
+    if (response.ok) meter.ai(result.usage, response.headers);
     if (!response.ok) throw new Error(`Claude API ${response.status}: ${result?.error?.message || 'error'}`);
     return result;
   }
