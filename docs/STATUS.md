@@ -29,9 +29,19 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - Members get 10 invites and a private `/me/` page (invites + profile photo). The agent can send it (`get_invite_link` / `get_my_page`).
   - `/ops` shows invites used per person, and Insights has an "Invites & waitlist" group.
 - **Profile photos:** text a photo ("use this as my profile photo"), or upload one on `/me/`. Shown on plan pages.
-- **Tests:** 71 pass.
+- **Mike's list (09-29):**
+  - Weather-aware suggestions (NWS).
+  - Their own events by text ("BBQ at my place Sat 4pm", errands).
+  - "Add to calendar" (.ics) on plan pages.
+  - Contact cards texted to Rall-e are saved for invites.
+  - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
+- **Tests:** 77 pass.
 
 ## Open items / next
+- **Mike's list, not built (see the recommendations in chat / below):**
+  - Google Calendar sign-in (OAuth: testing mode is fine for testers; production needs Google verification). Gmail is not recommended (restricted scope needs a paid CASA security assessment).
+  - Storing third-party logins for booking: not recommended. Use the Stripe card + partner booking APIs instead.
+  - Google Contacts import pairs with the Calendar OAuth.
 - **Donovan's invite/profile designs** will replace the interim `/me/` page styling. The waitlist needs an ops view and an "invite from the waitlist" action. Invite quota overrides per person are possible (`invite_quota` table), but there's no UI yet.
 - The opt-in caps were raised for invites (defaults: 60/day, 1,000 total; `SMS_OPTIN_DAILY_LIMIT` / `SMS_OPTIN_MAX`).
 - **Invite texting (see the project doc `claude/invite-texting-research.md`):**
@@ -46,6 +56,10 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-29, Mike's list:**
+  - Weather, their own events, add-to-calendar, and contact cards by text.
+  - Curated sources pipeline with Meetup/Luma ICS feeds, JSON-LD and AI page reading.
+  - Movie showtimes were already live (SerpApi).
 - **09-29, "invite-only + profile photos" (Mike/Jeff):**
   - Waitlist home page, and invite links with 10 invites each.
   - Private `/me/` page, and the agent can send invite links.

@@ -49,7 +49,8 @@ export class Discovery {
       CREATE TABLE IF NOT EXISTS recent_finds (phone TEXT PRIMARY KEY, ids TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS serp_cache (key TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS geo_cache (q TEXT PRIMARY KEY, lat REAL, lng REAL, at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS travel_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS travel_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS weather_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
     // Plans keep referencing outings found earlier, including after a restart.
     for (const row of this.db.prepare('SELECT data FROM discovered_events WHERE fetched > ?').all(Date.now() - 60 * DAY)) registerEvent(JSON.parse(row.data));
   }
@@ -61,6 +62,45 @@ export class Discovery {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`${new URL(url).host} ${response.status}: ${result?.error?.message || result?.fault?.faultstring || 'error'}`);
     return result;
+  }
+
+  // ---------- weather ----------
+  // US forecast from the National Weather Service (free, no key; they ask for a User-Agent that identifies the app).
+  // Cached per ~10 km grid square for an hour. Returns day/night periods for about 7 days.
+  async weather(loc) {
+    if (loc?.lat == null) fail(400, 'I need to know where they are first.');
+    const k = `${loc.lat.toFixed(1)},${loc.lng.toFixed(1)}`, hit = this.db.prepare('SELECT data FROM weather_cache WHERE k=? AND at>?').get(k, Date.now() - 3600000);
+    if (hit) return JSON.parse(hit.data);
+    const headers = { 'User-Agent': 'Rall-e (rall-e.ai)', Accept: 'application/geo+json' };
+    const point = await this.get(`https://api.weather.gov/points/${loc.lat.toFixed(4)},${loc.lng.toFixed(4)}`, { headers }).catch(() => null);
+    if (!point?.properties?.forecast) fail(502, 'Weather is only available for US locations right now.');
+    const f = await this.get(point.properties.forecast, { headers });
+    const out = { place: point.properties.relativeLocation?.properties?.city || loc.label, periods: (f.properties?.periods || []).slice(0, 14).map(p => ({
+      name: p.name, day: p.startTime?.slice(0, 10), temp: `${p.temperature}°${p.temperatureUnit || 'F'}`, rain: p.probabilityOfPrecipitation?.value ?? 0, sky: p.shortForecast, wind: p.windSpeed })) };
+    this.db.prepare('INSERT OR REPLACE INTO weather_cache VALUES (?,?,?)').run(k, JSON.stringify(out), Date.now());
+    return out;
+  }
+  weatherText(w) { return `Forecast near ${w.place}:\n${w.periods.map(p => `${p.name} (${p.day}): ${p.sky}, ${p.temp}${p.rain ? `, ${p.rain}% chance of rain` : ''}`).join('\n')}`; }
+
+  // ---------- their own events ----------
+  // Something the person is organizing themselves ("BBQ at my place Saturday at 4", "pick up milk") becomes a stop like any other.
+  async customEvent(phone, { title, date = '', time = '', place = '', address = '', details = '', category = '' }) {
+    const name = String(title || '').trim().slice(0, 80); if (!name) fail(400, 'Error: give the event a short title.');
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '', clock = /^\d{1,2}:\d{2}$/.test(time) ? time.padStart(5, '0') : '';
+    const loc = this.location(phone), where = String(address || place || '').trim().slice(0, 140);
+    let lat = null, lng = null;
+    if (where && this.keys.google) {
+      const q = loc?.label && !/,/.test(where) ? `${where}, ${loc.label}` : where;
+      const r = await this.get(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&components=country:US&key=${this.keys.google}`).catch(() => ({}));
+      const at = r.results?.[0]?.geometry?.location; if (at) { lat = at.lat; lng = at.lng; }
+    }
+    const e = this.shape({ id: `cu_${randomBytes(6).toString('base64url')}`, source: 'Their own event', kind: 'custom', category: category || 'event', short: name,
+      venue: String(place || '').trim().slice(0, 80) || (where ? where.split(',')[0] : 'Their spot'), area: loc?.label || '', address: where || null, lat, lng,
+      time: day ? when(day, clock ? `${clock}:00` : '') : 'Time to be decided', startsAt: day && clock ? `${day}T${clock}:00` : null, localDate: day || null,
+      price: null, priceText: 'Free', description: String(details || '').trim().slice(0, 300) || `Organized by the host.`, custom: true });
+    e.doors = e.time; e.duration = 'Up to you';
+    registerEvent(e); this.db.prepare('INSERT OR REPLACE INTO discovered_events VALUES (?,?,?)').run(e.id, JSON.stringify(e), Date.now());
+    return e;
   }
 
   // ---------- travel between stops ----------
@@ -175,7 +215,7 @@ export class Discovery {
     if (this.keys.ticketmaster && eventy) tasks.push(this.ticketmaster(loc, what, category, start, end).catch(e => { console.error('Ticketmaster:', e.message); return []; }));
     if (this.keys.seatgeek && eventy) tasks.push(this.seatgeek(loc, what, category, start, end).catch(e => { console.error('SeatGeek:', e.message); return []; }));
     if (this.keys.google && placey && loc.lat != null) tasks.push(this.places(loc, what, category).catch(e => { console.error('Places:', e.message); return []; }));
-    tasks.push(this.local(loc, what)); // stub
+    tasks.push(this.local(loc, { what, category, start, end }));
     const seen = new Set(), out = [];
     for (const e of (await Promise.all(tasks)).flat()) {
       const key = `${e.short.toLowerCase().replace(/\W/g, '')}|${e.startsAt || ''}`;
@@ -334,7 +374,8 @@ export class Discovery {
     return r.ok && type.startsWith('image/') ? { type, bytes: Buffer.from(await r.arrayBuffer()) } : null;
   }
   // Later: Craigslist events, Facebook events, local newspaper calendars. Returns nothing for now.
-  async local() { return []; }
+  // Curated sources the team added for this city (server/sources.mjs).
+  async local(loc, query) { try { return this.curated?.near(loc, query) || []; } catch { return []; } }
   shape(e) {
     return { title: e.short, doors: e.kind === 'place' ? e.time : 'See listing', duration: e.kind === 'place' ? 'Up to you' : 'See listing', accessibility: 'Check with the venue.', tag: [e.priceText, e.rating].filter(Boolean).join(' · '),
       color: art(e.category), fictional: false, kind: 'event', ...e };

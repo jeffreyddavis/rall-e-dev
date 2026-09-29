@@ -8,6 +8,8 @@ import { Agent } from './agent.mjs';
 import { scrubCards } from './vault.mjs';
 import { stats } from './stats.mjs';
 import { legText } from './discovery.mjs';
+import { parseVcards } from './photos.mjs';
+const isCard = m => /vcard|x-vcard|text\/directory/i.test(m?.type || '') || /\.vcf(\?|$)/i.test(m?.url || '');
 
 const VIBES = [['1', 'dinner', 'Dinner'], ['2', 'live shows', 'Live shows'], ['3', 'museums', 'Museums & art'], ['4', 'nature', 'Outdoors']];
 const YES = /^(y|yes|yep|yeah|yup|sure|ok|okay|i'?m in|im in|in|count me in|let'?s do it|let'?s go|sounds good|love it|absolutely|definitely)[.!]*$/i;
@@ -105,7 +107,9 @@ export class TextFlow {
   }
   idle() { return Promise.all([...this.chains.values()]); }
   async handle(phone, body, opts) {
-    const said = reactionText(String(body || '').trim().slice(0, 640)), text = opts.media ? (said ? `${said}\n[sent a photo]` : '[sent a photo]') : said;
+    const said = reactionText(String(body || '').trim().slice(0, 640));
+    let text = opts.media ? (said ? `${said}\n[sent a photo]` : '[sent a photo]') : said;
+    if (opts.media && isCard(opts.media)) text = `${said ? `${said}\n` : ''}${await this.contactCard(phone, opts.media)}`;
     if (this.pre(phone, text, opts)) return;
     this.sms.typing(phone); // iMessage "…" bubble while the agent thinks
     let reply;
@@ -218,7 +222,8 @@ export class TextFlow {
     const scrub = scrubCards(text);
     const logged = this.sms.log(phone, 'in', scrub.clean, { sid });
     // A photo they texted: kept briefly so "use this as my profile photo" works (only the link; nothing is downloaded yet).
-    if (media?.url) { this.sms.lastMedia.set(phone, { ...media, at: Date.now() }); if (logged) this.db.prepare('UPDATE sms_log SET media=? WHERE id=?').run('photo', logged); }
+    if (media?.url && !isCard(media)) { this.sms.lastMedia.set(phone, { ...media, at: Date.now() }); if (logged) this.db.prepare('UPDATE sms_log SET media=? WHERE id=?').run('photo', logged); }
+    if (media?.url && isCard(media) && logged) this.db.prepare('UPDATE sms_log SET media=? WHERE id=?').run('contact', logged);
     if (scrub.found && !this.sms.isStopped(phone)) {
       this.reply(phone, 'For your safety I deleted that card number and didn’t save it. Please never text card details. I’ll send you a private link to add a card securely.', 'vault');
       if (this.sms.vault.enabled && this.threadsFor(phone).length) { try { this.sms.vault.sendLink(phone, 'card'); } catch (e) { if (!e.status) throw e; } }
@@ -368,6 +373,18 @@ export class TextFlow {
     this.db.prepare('INSERT OR IGNORE INTO host_contacts SELECT ?, name_key, name, phone, updated FROM host_contacts WHERE digest=?').run(digest, t.digest);
     this.link(phone, digest, state, 'host');
     return { s: state, digest, kept: true, previous: old.plan.title };
+  }
+  // A contact card texted to Rall-e ("share contact" in Messages): saved to the host's contacts so "invite Tori" works.
+  // Saving a number never means texting it: invites still follow the opt-in rules.
+  async contactCard(phone, media) {
+    try {
+      const cards = parseVcards((await this.sms.photos.download(media, 512 * 1024)).toString('utf8'));
+      if (!cards.length) return '[sent a contact card, but it had no name and phone number]';
+      const host = this.threadsFor(phone).find(t => t.role === 'host');
+      if (host) for (const c of cards) this.remember(host.digest, c.name.split(' ')[0], c.phone);
+      stats.bump('contacts_shared', cards.length, phone);
+      return `[shared ${cards.length === 1 ? 'a contact card' : `${cards.length} contact cards`}: ${cards.map(c => c.name).join(', ')}${host ? ' (saved to their contacts, so they can be invited by first name)' : ''}]`;
+    } catch (error) { return `[sent a contact card that couldn't be read: ${error.message}]`; }
   }
   // Each host's address book: names they've invited with a number, reused across plans ("invite Mike and Marc").
   remember(digest, name, phone) { this.db.prepare('INSERT OR REPLACE INTO host_contacts VALUES (?,?,?,?,?)').run(digest, name.trim().toLowerCase(), name.trim(), phone, Date.now()); }

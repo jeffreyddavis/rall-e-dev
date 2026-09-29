@@ -82,3 +82,5 @@
 /* Walk / drive time to the next stop, under each stop card */
 .tl-leg{grid-column:2;display:inline-flex;align-items:center;gap:6px;justify-self:start;margin-top:-2px;padding:4px 10px;border-radius:999px;font-size:13px;color:#2f5f7c;background:rgba(62,119,152,.10);text-decoration:none}
 a.tl-leg:hover,a.tl-leg:focus-visible{background:rgba(62,119,152,.18)}
+.evening-calendar{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;padding:11px 16px;border-radius:999px;border:1px solid rgba(47,137,194,.35);color:#2f89c2;font-weight:600;text-decoration:none;background:rgba(255,255,255,.7)}
+.evening-calendar:hover,.evening-calendar:focus-visible{background:#fff}

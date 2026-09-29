@@ -1,5 +1,6 @@
 import { Invites } from './invites.mjs';
 import { Photos } from './photos.mjs';
+import { Sources } from './sources.mjs';
 import twilio from 'twilio';
 import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { fail } from './store.mjs';
@@ -71,6 +72,7 @@ export class Sms {
     this.flow = new TextFlow(store, this);
     this.invites = new Invites(this, env);
     this.photos = new Photos(this, env, fetchImpl);
+    this.sources = new Sources(this, env, fetchImpl); this.discovery.curated = this.sources;
     this.lastMedia = new Map(); // phone -> the latest photo they texted { url, type, at }
     // Plan pages show people's profile photos: find the phone behind a host (participant '') or a friend on a plan.
     store.photoOf = (s, participant = '') => { const r = this.db.prepare("SELECT phone FROM sms_threads WHERE plan=? AND " + (participant ? 'participant=?' : "role='host'") + ' LIMIT 1').get(...(participant ? [s.id, participant] : [s.id])); return r ? this.photos.urlFor(r.phone) : null; };
@@ -412,7 +414,7 @@ export class Sms {
     // Handled after the webhook returns (the agent may take a few seconds); replies go out through the send queue.
     else {
       this.lastIn.set(from, { handle: '', service: 'SMS' });
-      const photo = Number(params.NumMedia) > 0 && /^image\//.test(params.MediaContentType0 || '') ? { url: params.MediaUrl0, type: params.MediaContentType0 } : null;
+      const photo = Number(params.NumMedia) > 0 && /^image\/|vcard|directory/i.test(params.MediaContentType0 || '') ? { url: params.MediaUrl0, type: params.MediaContentType0 } : null;
       this.flow.enqueue(from, params.Body || '', { sid: params.MessageSid, optOutType: params.OptOutType || '', media: photo });
     }
     return empty;

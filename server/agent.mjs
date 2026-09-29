@@ -49,7 +49,9 @@ Showing what you can do (see "Features" in the situation):
 - Don't assume plans happen at night. Match their timing (a day trip, brunch, an afternoon with the kids, a weekend) and call it a plan, outing or day rather than "the night" unless it really is an evening.
 - You can only text people who have opted in to Rall-e (the test group and anyone who turned on texts from a Rall-e page). When a host wants to invite someone, never promise to text them: ask for their name (and number, so it's saved for later) and explain they'll get a personal link to forward. If that person has already opted in, invite texts them directly and the result tells you. Friends can turn on texts from their invite page in one step.
 - Rall-e is invite-only. Each member has a few invites (get_invite_link gives their reusable link and their private invites page). When someone wants a friend to get Rall-e itself, send their invite link; don't send people to the website to sign up without one. Friends invited to a plan can still join that plan from their plan link.
-- Profile photos: members can have one (friends see it on plan pages). If they text a photo with no clear purpose, ask if they'd like it as their profile photo; if they say yes (or asked), call set_profile_photo. They can also change it on their page (get_my_page).`;
+- Profile photos: members can have one (friends see it on plan pages). If they text a photo with no clear purpose, ask if they'd like it as their profile photo; if they say yes (or asked), call set_profile_photo. They can also change it on their page (get_my_page).
+- Their own events: when someone is organizing something themselves (a BBQ, game night, a picnic, an errand like picking up milk), don't search for listings: create_event, then make_plan or add_stop with it, and invite people as usual.
+- Weather: for "what should I do this week/weekend" or anything outdoors, check get_weather and let it shape the picks (a rainy Saturday means indoor ideas, a sunny one means the patio or the park). Mention it in a few words.`;
 
 const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
@@ -130,7 +132,8 @@ export class Agent {
       T('find_things', `Search real things to do near them (events, restaurants, bars, activities${this.discovery.keys?.gracenote || this.discovery.keys?.serp ? ', and movies with real showtimes at nearby theaters: use category movies' : ''}).`, { what: { type: 'string', description: 'What they want, e.g. "live music", "brunch", "comedy", "something outdoors"' }, category: { type: 'string', enum: ['music', 'comedy', 'sports', 'theatre', 'arts', 'nightlife', 'dinner', 'museums', 'nature', 'movies'] }, date: { type: 'string', description: 'YYYY-MM-DD for a specific day' }, days: { type: 'integer', description: 'How many days ahead to look (default 7)' } }),
       T('set_location', 'Save where they are (neighborhood, city or ZIP) for finding things nearby.', { place: { type: 'string' } }, ['place']),
       T('show_options', 'Show options as picture cards after your text. Pass EVERY option you mention in your text (up to 8), best first: the first 3 arrive as picture cards (one message each, with a photo preview) and tapping any card opens a page listing all of them with details and My pick.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 } }, ['event_ids']),
-      T('send_location_link', 'Text them a one-tap link to share their current location from their phone.')] : [];
+      T('send_location_link', 'Text them a one-tap link to share their current location from their phone.'),
+      T('get_weather', 'The forecast where they are (about 7 days, US only). Use when they ask about weather, or when planning outdoor things or their week, to steer toward good days (indoor ideas if it will rain).')] : [];
     const common = [
       T('log_gap', 'Call this whenever you tell them you can\'t do something they asked, or something you tried failed or found nothing useful. It helps the team fix it. Give a short snake_case category (e.g. book_or_buy_tickets, prices_unavailable, no_results, movie_showtimes, unsupported_city, restaurant_reservations, weather, rides, other) and a one-line example of what they asked with NO names, phone numbers, emails, addresses or other personal details (e.g. "wants tickets bought for a comedy show Saturday").', { category: { type: 'string' }, example: { type: 'string' } }, ['category', 'example']),
       T('mention_feature', 'Call this whenever your reply offers or points out one of Rall-e\'s features (see "Features" in the situation), so you don\'t repeat it. why=need when it answers something they just said or asked; why=tip when unprompted.', { feature: { type: 'string', enum: FEATURES.map(f => f.id) }, why: { type: 'string', enum: ['need', 'tip'] } }, ['feature', 'why']),
@@ -162,6 +165,10 @@ export class Agent {
       T('make_plan', 'Make this outing the plan (they said yes to it).', { event_id: eventId }, ['event_id']),
       T('invite', 'Invite friends the host named. Include a phone only if the host typed it; names in "Saved contacts" are texted automatically without a number.', { people: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, phone: { type: 'string' } }, required: ['name'] } } }, ['people']),
       T('add_stop', 'Add another stop to the itinerary.', { event_id: eventId }, ['event_id']),
+      ...(live ? [T('create_event', 'Create their OWN event (something they are organizing or doing that isn\'t a listing): a BBQ at their place, a picnic, game night, "pick up milk". Returns an event id; then use make_plan (no plan yet) or add_stop with it. Ask for the day/time only if they haven\'t given it and it matters.', {
+        title: { type: 'string', description: 'Short title, e.g. "BBQ at Jeff\'s"' }, date: { type: 'string', description: 'YYYY-MM-DD if known' }, time: { type: 'string', description: 'HH:MM 24h if known' },
+        place: { type: 'string', description: 'Place name, e.g. "Jeff\'s place" or "Griffith Park"' }, address: { type: 'string', description: 'Street address or searchable place, if they gave one' },
+        details: { type: 'string', description: 'One line of details (bring a dish, etc.)' }, category: { type: 'string', enum: ['dinner', 'nature', 'music', 'sports', 'arts', 'nightlife', 'event'] } }, ['title'])] : []),
       T('remove_stop', 'Remove a stop from the itinerary.', { event_id: eventId }, ['event_id']),
       T('remove_guest', 'Take a person off the plan (e.g. someone who joined from the shared link by mistake). Only when the host asks.', { name: { type: 'string' } }, ['name']),
       T('set_mode', 'Lock the plan (no suggestions) or open it to suggestions.', { mode: { type: 'string', enum: ['locked', 'open'] } }, ['mode']),
@@ -213,6 +220,15 @@ export class Agent {
         this.pendingCards.set(phone, ids); stats.bump('option_sets_sent', 1, phone); stats.bump('options_shown', ids.length, phone);
         const cards = Math.min(ids.length, 3);
         return `${cards} picture card(s) will follow your text, one per message${ids.length > 3 ? `, and tapping any of them opens a page with all ${ids.length} options` : ''}. Keep your text to a short intro and don't repeat links.${ids.length > 3 ? ' Don\'t say only some are coming or offer to send the rest: the page already has them all.' : ''}`;
+      }
+      if (name === 'get_weather') {
+        const loc = this.discovery.location(phone); if (!loc) return 'Error: location unknown. Ask where they are first.';
+        stats.bump('weather_checks', 1, phone);
+        return `${this.discovery.weatherText(await this.discovery.weather(loc))}\nUse it naturally (one short mention), don't recite the forecast unless they asked for it.`;
+      }
+      if (name === 'create_event') {
+        const e = await this.discovery.customEvent(phone, input); stats.bump('custom_events', 1, phone);
+        return `Created: ${e.id} = ${e.short}${e.venue ? ` at ${e.venue}` : ''}, ${e.time}. Now make_plan or add_stop with ${e.id}.`;
       }
       if (name === 'set_location') {
         const loc = this.discovery.saveLocation(phone, await this.discovery.geocode(input.place));

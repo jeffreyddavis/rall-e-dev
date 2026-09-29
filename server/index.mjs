@@ -29,6 +29,18 @@ const previewTags = ({ title, description, image, url }) => [['og:type', 'websit
 const publicEvent = e => ({ id: e.id, short: e.short, title: e.title, tag: e.tag, venue: e.venue, area: e.area, address: e.address, time: e.time, doors: e.doors, priceText: e.priceText || (e.price ? `$${e.price}/person (sample)` : 'Free'), rating: e.rating, description: e.description, url: e.url, source: e.source || 'Rall-e sample', color: e.color, image: e.image, thumb: e.thumb, fictional: e.fictional !== false, accessibility: e.accessibility, age: e.age });
 const production = process.env.NODE_ENV === 'production';
 // "Plan this with friends" opens Messages to Rall-e: iPhones get the iMessage line, everything else the SMS line.
+const icsText = v => String(v || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/([,;])/g, '\\$1');
+const icsTime = at => { const utc = /Z$/.test(at), d = String(at).replace(/\.\d+/, '').replace(/Z$/, ''); const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(d); return m ? `${m[1]}${m[2]}${m[3]}T${m[4]}${m[5]}00${utc ? 'Z' : ''}` : null; };
+function planCalendar(s, link) {
+  const stops = s.plan.stops.map(id => eventById(id)).filter(e => e?.startsAt && icsTime(e.startsAt));
+  if (!stops.length) return null;
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const ev = stops.map(e => { const start = new Date(/Z$/.test(e.startsAt) ? e.startsAt : `${e.startsAt}Z`), end = new Date(start.getTime() + 2 * 3600000).toISOString();
+    const endTime = /Z$/.test(e.startsAt) ? icsTime(end) : icsTime(end.replace('Z', ''));
+    return ['BEGIN:VEVENT', `UID:${s.id}-${e.id}@rall-e.ai`, `DTSTAMP:${stamp}`, `DTSTART:${icsTime(e.startsAt)}`, `DTEND:${endTime}`, `SUMMARY:${icsText(e.short)}`,
+      `LOCATION:${icsText([e.venue, e.address].filter(Boolean).join(', '))}`, `DESCRIPTION:${icsText(`${s.plan.title} (planned with Rall-e): ${link}`)}`, `URL:${link}`, 'END:VEVENT'].join('\r\n'); });
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Rall-e//Plans//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', ...ev, 'END:VCALENDAR', ''].join('\r\n');
+}
 const textNumbers = () => ({ imessage: sms.provider === 'sendblue' ? sms.sendblue.number : sms.from, sms: sms.from });
 const vite = !production ? await (await import('vite')).createServer({ root, server: { middlewareMode: true }, appType: 'spa' }) : null;
 const locks = new Set();
@@ -194,8 +206,14 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === '/api/ops/insights' && req.method === 'GET') return json(res, 200, { ...stats.report(), ...(role === 'operator' ? { canEdit: true } : {}) });
         if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
+        if (url.pathname === '/api/ops/sources' && req.method === 'GET') { if (role !== 'operator') fail(404, 'Not found.'); return json(res, 200, { sources: sms.sources.list() }); }
         if (req.method !== 'POST') fail(405, 'Method not allowed.');
         if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
+        if (url.pathname.startsWith('/api/ops/sources')) {
+          const input = await body(req), op = url.pathname.slice('/api/ops/sources'.length);
+          if (op === '') await sms.sources.add(input); else if (op === '/refresh') await sms.sources.refresh(String(input.id || '')); else if (op === '/remove') sms.sources.remove(String(input.id || '')); else fail(404, 'Not found.');
+          return json(res, 200, { sources: sms.sources.list() });
+        }
         if (url.pathname === '/api/ops/gap') { const input = await body(req); stats.setGap(String(input.category || ''), input); return json(res, 200, { ok: true }); }
         const input = await body(req), phone = normalizePhone(input.phone || '');
         if (!phone || !(sms.allowed.has(phone) || (url.pathname === '/api/ops/wipe' && sms.db.prepare("SELECT 1 FROM sms_log WHERE phone=? LIMIT 1").get(phone)))) fail(404, 'Not a Rall-e number.');
@@ -298,6 +316,15 @@ const server = http.createServer(async (req, res) => {
       const html = (await readFile(resolve(root, 'dist', 'index.html'), 'utf8')).replace(/<title>[^<]*<\/title>/, tags ? '' : '$&').replace('</head>', `${tags}</head>`);
       res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-cache' }); return res.end(html);
     }
+    // "Add to calendar": the plan's timed stops as an .ics file (opens in Apple/Google/Outlook calendars; no account access needed).
+    const cal = /^\/cal\/(p|n)\/([\w-]{10,60})\.ics$/.exec(url.pathname);
+    if (cal && req.method === 'GET') {
+      let s; try { s = cal[1] === 'p' ? store.guest(cal[2]).s : store.night(cal[2]).s; } catch { res.writeHead(404); return res.end(); }
+      const ics = planCalendar(s, `${publicBase}${cal[1] === 'p' ? '/p/' : '/n/'}${cal[2]}`);
+      if (!ics) { res.writeHead(404, { 'content-type': 'text/plain' }); return res.end('No timed stops on this plan yet.'); }
+      stats.bump('calendar_downloads');
+      res.writeHead(200, { 'content-type': 'text/calendar; charset=utf-8', 'content-disposition': 'attachment; filename="rall-e-plan.ics"', 'cache-control': 'no-store' }); return res.end(ics);
+    }
     const userPhoto = /^\/img\/u\/([\w-]{12})\.jpg$/.exec(url.pathname);
     if (userPhoto && req.method === 'GET') {
       const data = sms.photos.image(userPhoto[1]); if (!data) { res.writeHead(404); return res.end(); }
@@ -326,7 +353,7 @@ const server = http.createServer(async (req, res) => {
     res.end(await readFile(path));
   } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); sms.sources.schedule(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
 // Deploys restart the service: stop taking requests, finish texts already being handled (up to 25 s), then exit.
 let stopping = false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => {

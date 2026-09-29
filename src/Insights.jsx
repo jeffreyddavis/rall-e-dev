@@ -9,6 +9,7 @@ const GROUPS = [
     ['invites_sent', 'Friends invited to plans'], ['shared_night_views', 'Shared plans viewed'], ['shared_list_views', 'Shared idea lists viewed'], ['share_taps_night', 'Share taps: plans'], ['share_taps_ideas', 'Share taps: idea lists'], ['share_taps_spot', 'Share taps: single spots']]],
   ['Plans & engagement', [['plans_created', 'Plans created'], ['plans_confirmed', 'Plans confirmed'], ['stops_added', 'Stops added'], ['option_sets_sent', 'Sets of ideas sent'], ['options_shown', 'Ideas shown'], ['my_picks', 'My pick taps'],
     ['rsvp_yes', 'RSVPs: yes'], ['rsvp_maybe', 'RSVPs: maybe'], ['rsvp_no', 'RSVPs: no'], ['ideas_suggested', 'Ideas suggested by friends'], ['votes', 'Votes'], ['group_messages', 'Group messages']]],
+  ['Planning helpers', [['custom_events', 'Their own events created'], ['weather_checks', 'Weather checks'], ['calendar_downloads', 'Added to calendar'], ['contacts_shared', 'Contact cards shared'], ['profile_photos_text', 'Profile photos by text'], ['profile_photos_page', 'Profile photos on the page']]],
   ['Trust', [['vault_saves_web', 'Vault saves (secure page)'], ['vault_saves_text', 'Details saved by text'], ['locations_shared', 'Locations shared']]],
   ['What people search for', null]
 ];

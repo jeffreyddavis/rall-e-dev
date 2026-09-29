@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Plus, MessageCircle, Footprints, Car } from 'lucide-react';
+import { Check, Plus, MessageCircle, Footprints, Car, CalendarPlus } from 'lucide-react';
 import { CompactCard, ShareButton, planLink } from './OptionCard.jsx';
 
 // The whole night in one place (Marc's ask): a timeline of every stop, then friends' ideas with who picked each.
@@ -27,6 +27,9 @@ export default function EveningView({ state, meId = null, host = false, readOnly
     fetch(`/api/travel?ids=${encodeURIComponent(stopKey)}`).then(r => r.ok ? r.json() : { legs: [] }).then(d => { if (live) setLegs(d.legs || []); }).catch(() => {});
     return () => { live = false; };
   }, [stopKey]);
+  // Plans opened from a private link can go into their calendar (.ics) once a stop has a real start time.
+  const tokenPath = /^\/(p|n)\/([\w-]{10,60})$/.exec(location.pathname);
+  const calendar = !readOnly && tokenPath && stops.some(e => e.startsAt) ? `/cal/${tokenPath[1]}/${tokenPath[2]}.ics` : null;
   const addStop = smsTo(textNumbers, `Can we add another stop to ${plan.title}?`);
   return <section className="evening">
     <div className="evening-summary">
@@ -40,6 +43,7 @@ export default function EveningView({ state, meId = null, host = false, readOnly
       {me && !closed && <div className="rsvp-buttons">{[['yes', 'I’m in'], ['maybe', 'Maybe'], ['no', 'Can’t go']].map(([value, label]) =>
         <button key={value} aria-pressed={me.response === value} className={`button ${me.response === value ? 'primary' : 'secondary'}`} disabled={busy} onClick={() => onRsvp(value)}>{label}</button>)}</div>}
       <ShareButton url={shareUrl} title={`${host ? 'My' : `${state.name}’s`} plan: ${plan.title}`} label="Share this plan"/>
+      {calendar && <a className="evening-calendar" href={calendar}><CalendarPlus size={16}/>Add to calendar</a>}
     </div>
     {stops.length ? <ol className="timeline">{stops.map((e, i) => { const at = clock(e); return <li key={e.id}>
       <div className="tl-when">{at ? <><strong>{at[0]}</strong><small>{at[1]}</small></> : <span className="tl-num">{i + 1}</span>}</div>

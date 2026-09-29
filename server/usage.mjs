@@ -8,7 +8,7 @@ import { freemem, totalmem, uptime } from 'node:os';
 const today = () => new Date().toISOString().slice(0, 10);
 const month = () => new Date().toISOString().slice(0, 7);
 const level = (used, limit) => !limit ? 'ok' : used / limit >= 0.9 ? 'critical' : used / limit >= 0.75 ? 'warn' : 'ok';
-const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'routes.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'demo.tmsimg.com': 'gracenote' };
+const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'routes.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'api.weather.gov': 'weather', 'demo.tmsimg.com': 'gracenote' };
 const skuOf = url => {
   const u = new URL(url);
   if (u.host === 'maps.googleapis.com') return u.pathname.includes('geocode') ? 'geocoding' : 'maps';

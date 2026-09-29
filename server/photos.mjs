@@ -32,10 +32,29 @@ export class Photos {
   // A photo someone texted in. Twilio media needs our account credentials; Sendblue media URLs are public.
   async fromText(phone, media) {
     if (!media?.url || !/^https:\/\//.test(media.url)) fail(400, 'I don’t see a photo in your last text. Send one and I’ll use it.');
+    return this.save(phone, await this.download(media), 'text');
+  }
+  // Media someone texted us (photos, contact cards).
+  async download(media, limit = MAX_BYTES) {
     const headers = {};
     if (new URL(media.url).host === 'api.twilio.com') headers.authorization = 'Basic ' + Buffer.from(`${this.env.TWILIO_ACCOUNT_SID}:${this.env.TWILIO_AUTH_TOKEN}`).toString('base64');
     const r = await this.fetch(media.url, { headers, signal: AbortSignal.timeout(20000) }).catch(() => null);
-    if (!r?.ok) fail(502, 'I couldn’t download that photo. Try sending it again.');
-    return this.save(phone, Buffer.from(await r.arrayBuffer()), 'text');
+    if (!r?.ok) fail(502, 'I couldn’t download that. Try sending it again.');
+    const buf = Buffer.from(await r.arrayBuffer()); if (buf.length > limit) fail(413, 'That file is too big.');
+    return buf;
   }
+}
+
+// Contact cards (vCard) texted to Rall-e: name + mobile number for each card in the file.
+export function parseVcards(text) {
+  const out = [];
+  for (const card of String(text).replace(/\r?\n[ \t]/g, '').split(/BEGIN:VCARD/i).slice(1)) {
+    const line = key => card.split(/\r?\n/).filter(l => new RegExp(`^(item\\d+\\.)?${key}[;:]`, 'i').test(l));
+    const fn = line('FN')[0]?.split(':').slice(1).join(':').trim() || line('N')[0]?.split(':').slice(1).join(':').split(';').filter(Boolean).reverse().join(' ').trim();
+    const tels = line('TEL').map(l => ({ type: l.split(':')[0].toLowerCase(), number: l.split(':').slice(1).join(':').replace(/[^\d+]/g, '') })).filter(t => t.number.length >= 10);
+    const tel = tels.find(t => /cell|mobile|iphone/.test(t.type)) || tels[0];
+    const d = tel?.number.replace(/\D/g, ''), e164 = d?.length === 10 ? `+1${d}` : d?.length === 11 && d.startsWith('1') ? `+${d}` : tel?.number.startsWith('+') ? `+${d}` : null;
+    if (fn && e164) out.push({ name: fn.replace(/\\,/g, ',').slice(0, 60), phone: e164 });
+  }
+  return out;
 }
