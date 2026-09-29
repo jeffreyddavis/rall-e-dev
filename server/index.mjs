@@ -131,11 +131,14 @@ const server = http.createServer(async (req, res) => {
       }
       if (url.pathname.startsWith('/api/ops/')) {
         // Demo operator console: see real conversations and have Rall-e show off a feature to someone. Operator key only.
-        sms.authorize(req.headers.authorization?.replace(/^Bearer /, ''), req.socket.remoteAddress);
-        if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, { people: sms.opsPeople(), features: FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch })), live: sms.live });
+        // Behind the proxy every request comes from 127.0.0.1, so lockouts are per real client IP.
+        const opsIp = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
+        const role = sms.opsRole(req.headers.authorization?.replace(/^Bearer /, ''), opsIp);
+        if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, { role, people: sms.opsPeople(), features: role === 'operator' ? FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch })) : [], live: sms.live });
         if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
         if (req.method !== 'POST') fail(405, 'Method not allowed.');
+        if (role !== 'operator') fail(403, 'This is a view-only login.'); // the server enforces it, not just the page
         const input = await body(req), phone = normalizePhone(input.phone || '');
         if (!phone || !sms.allowed.has(phone)) fail(404, 'Not a Rall-e number.');
         if (sms.isStopped(phone)) fail(409, 'They opted out (STOP).');

@@ -78,6 +78,16 @@ export class Sms {
     }
     this.failedAuth.delete(source);
   }
+  // Demo console roles: the operator key can do everything; the viewer key (OPS_VIEWER_KEY, for the business side)
+  // can only look (conversations and usage). Returns 'operator' | 'viewer'.
+  opsRole(value, source = 'local') {
+    const viewer = this.env.OPS_VIEWER_KEY || '';
+    if (viewer.length >= 24 && value && timingSafeEqual(Buffer.from(digest(value)), Buffer.from(digest(viewer)))) {
+      if (this.failedAuth.get(source)?.until > Date.now()) fail(429, 'Wait a minute before trying again.');
+      this.failedAuth.delete(source); return 'viewer';
+    }
+    this.authorize(value, source); return 'operator';
+  }
   publicRow(row) { return { id: row.id, participant: row.participant, kind: row.kind, recipient: mask(row.recipient), body: row.body, status: row.status, error: row.error, created: row.created }; }
   status(session) {
     const s = this.store.get(session);

@@ -30,8 +30,8 @@ export default function OpsPage() {
 
   if (!key) return <main className="ops"><header className="ops-top"><Wordmark/><span>Demo console</span></header>
     <form className="ops-card ops-login" onSubmit={e => { e.preventDefault(); try { sessionStorage.setItem('rall-e-ops', draftKey); } catch {} setKey(draftKey); setError(''); }}>
-      <h1>Operator key</h1><p>Same key as the SMS lab (SMS_OPERATOR_KEY in .env).</p>
-      <input type="password" value={draftKey} onChange={e => setDraftKey(e.target.value)} autoFocus placeholder="Operator key"/>
+      <h1>Access key</h1><p>Enter the key you were given. Operators can have Rall-e send texts; view-only keys can watch conversations and usage.</p>
+      <input type="password" value={draftKey} onChange={e => setDraftKey(e.target.value)} autoFocus placeholder="Access key"/>
       <button className="button primary" disabled={draftKey.length < 24}>Open console</button>{error && <p className="error">{error}</p>}
     </form></main>;
 
@@ -41,10 +41,11 @@ export default function OpsPage() {
   const nudge = () => run(async () => { await call('nudge', { phone, feature, note }); setFeature(''); setNote(''); }, `Rall-e is writing to ${who}…`);
   const sendExact = () => run(async () => { await call('say', { phone, text: say }); setSay(''); setShowSay(false); }, `Sent to ${who}.`);
   const chosen = data?.features.find(f => f.id === feature);
+  const viewer = data?.role === 'viewer';
   const alerts = (usage?.cards || []).filter(c => ['critical', 'warn'].includes(c.status));
 
   return <main className={`ops ${phone ? 'has-person' : ''}`}>
-    <header className="ops-top"><Wordmark/><span>Demo console</span>{data && <b className={data.live ? 'live' : ''}>{data.live ? 'LIVE: texts really send' : 'Preview'}</b>}</header>
+    <header className="ops-top"><Wordmark/><span>Demo console</span>{data && (viewer ? <b className="view">View only</b> : <b className={data.live ? 'live' : ''}>{data.live ? 'LIVE: texts really send' : 'Preview'}</b>)}</header>
     <nav className="ops-tabs">
       <button className={tab === 'people' ? 'on' : ''} onClick={() => setTab('people')}><Users size={15}/>Conversations</button>
       <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
@@ -83,7 +84,7 @@ export default function OpsPage() {
           </div>)}
           <div ref={end}/>
         </div>
-        <div className="ops-controls">
+        {viewer ? <p className="ops-viewonly">View only. Conversations update live; texts are sent by the Rall-e team.</p> : <div className="ops-controls">
           <h3><Sparkles size={15}/>Have Rall-e show {who} a feature</h3>
           <div className="ops-features">{(data?.features || []).map(f => <button key={f.id} className={`${feature === f.id ? 'on' : ''} ${seen.has(f.id) ? 'seen' : ''}`} onClick={() => setFeature(feature === f.id ? '' : f.id)} title={f.pitch}>
             {seen.has(f.id) && <Check size={13}/>}{f.label}</button>)}</div>
@@ -92,7 +93,7 @@ export default function OpsPage() {
           <button className="button primary ops-go" disabled={busy || thread?.busy || (!feature && !note.trim())} onClick={nudge}>{busy ? <LoaderCircle size={16} className="spin"/> : <Sparkles size={16}/>}Have Rall-e text {who}</button>
           <button className="ops-link" onClick={() => setShowSay(!showSay)}><MessageSquareText size={14}/>{showSay ? 'Hide' : 'Send an exact text as Rall-e'}</button>
           {showSay && <div className="ops-say"><textarea value={say} onChange={e => setSay(e.target.value)} rows={2} maxLength={1000} placeholder="Exactly what Rall-e should send"/><button className="button secondary" disabled={busy || !say.trim()} onClick={sendExact}><Send size={15}/>Send</button></div>}
-        </div>
+        </div>}
       </section>}
     </div>}
     {toast && <div className="ops-toast" role="status">{toast}</div>}

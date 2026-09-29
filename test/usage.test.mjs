@@ -20,3 +20,12 @@ test('usage report: counts our API calls and AI tokens, reads provider accounts,
   assert.match(card('google').facts.join(' '), /text search: 1 of/);
   store.close();
 });
+
+test('demo console roles: the viewer key can only look; the operator key can act; wrong keys are refused', () => {
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'o'.repeat(30), OPS_VIEWER_KEY: 'v'.repeat(30) });
+  assert.equal(sms.opsRole('o'.repeat(30), 'a'), 'operator');
+  assert.equal(sms.opsRole('v'.repeat(30), 'a'), 'viewer');
+  assert.throws(() => sms.opsRole('nope', 'b'), /password/);
+  store.close();
+});
