@@ -81,3 +81,15 @@
 .ins-group td{padding:5px 0;border-top:1px solid #eef1f2;color:#4e5a60}.ins-group td:not(:first-child){text-align:right;font-variant-numeric:tabular-nums;color:#1d2127;padding-left:10px}
 .ins-gaps td:nth-child(3){text-align:left;color:#4e5a60}.ins-gaps th:nth-child(3){text-align:left}.ins-gaps td i{font-style:normal;font-size:10px;background:#eef1f2;border-radius:8px;padding:1px 6px;margin-left:6px;color:#6f7a80}
 .ins-muted{color:#8a979d}.ins-empty{max-width:1200px;margin:0 auto;color:#8a979d}
+.ins-table-wrap{overflow-x:auto}
+.ins-gaps table{min-width:760px}
+.ins-gaps td{vertical-align:top}.ins-gaps td:nth-child(3),.ins-gaps td:nth-child(5){text-align:left;color:#4e5a60}.ins-gaps th:nth-child(3),.ins-gaps th:nth-child(5),.ins-gaps th:nth-child(4),.ins-gaps td:nth-child(4){text-align:left}
+.ins-gaps td:nth-child(5){max-width:280px}
+.ins-status{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;background:#fff4dc;color:#7a5200}
+.ins-status.fixed{background:#e3f4ea;color:#23764a}.ins-status.in_progress{background:#dcecf8;color:#1f6fa8}.ins-status.by_design{background:#eef1f2;color:#5c6d76}
+.ins-again{display:block;font-style:normal;font-size:10px;color:#b23c17;margin-top:3px}
+.ins-note .ops-link{margin-left:8px;display:inline;font-size:12px}
+.ins-note-edit textarea{width:100%;box-sizing:border-box;font:inherit;font-size:13px;border:1px solid #d6e4eb;border-radius:8px;padding:6px}.ins-note-edit span{display:flex;gap:8px;align-items:center;margin-top:4px}.ins-note-edit .button{padding:4px 12px;font-size:12px;min-height:0}
+.ins-gaps select{font:inherit;font-size:13px;border:1px solid #d6e4eb;border-radius:8px;padding:4px}
+.ins-pager{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:10px;font-size:13px;color:#6f7a80}.ins-pager .ops-link:disabled{opacity:.35;cursor:default}
+.ins-gaps th,.ins-gaps td{padding-left:8px;padding-right:8px}.ins-gaps th:first-child,.ins-gaps td:first-child{padding-left:0}.ins-gaps th:nth-child(2),.ins-gaps td:nth-child(2){text-align:center}

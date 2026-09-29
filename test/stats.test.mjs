@@ -11,11 +11,16 @@ test('insights: anonymous counters and hashed actives; gaps keep one scrubbed ex
   stats.gap('Book or buy tickets!', 'Jeff wants tickets bought, call 330-697-5523 or jeff@example.com', 'agent', '+14155230100');
   stats.gap('book_or_buy_tickets', 'wants seats bought for comedy Saturday', 'agent', '+14155230100');
   stats.planEvent({ action: 'invite', data: { added: ['a', 'b'] } }); stats.planEvent({ action: 'accept' });
-  const r = stats.report({ gaps: true });
+  const r = stats.report();
   assert.equal(r.totals.texts_in, 3); assert.equal(r.people.all, 2); assert.equal(r.totals.invites_sent, 2); assert.equal(r.totals.plans_created, 1);
   assert.ok(!JSON.stringify(store.db.prepare('SELECT * FROM stat_actives').all()).includes('4155230100')); // only hashes
   assert.deepEqual(r.gaps.map(g => [g.category, g.n, g.example]), [['book_or_buy_tickets', 2, 'wants seats bought for comedy Saturday']]);
   assert.equal(scrub('call 330-697-5523 or jeff@example.com at https://x.co'), 'call [number] or [email] at [link]');
-  assert.equal(stats.report().gaps, undefined); // the dashboard key never gets gaps
+  stats.setGap('book_or_buy_tickets', { status: 'fixed', note: 'done' });
+  assert.equal(stats.report().gaps[0].status, 'fixed'); assert.equal(stats.report().gaps[0].again, false);
+  store.db.prepare('UPDATE gaps SET status_at=status_at-1000').run();
+  stats.gap('book_or_buy_tickets', 'asked again later', 'agent', '+14155230100');
+  assert.equal(stats.report().gaps[0].again, true); // seen again after it was marked fixed
+  assert.throws(() => stats.setGap('book_or_buy_tickets', { status: 'bogus' }), /Unknown status/);
   store.close();
 });

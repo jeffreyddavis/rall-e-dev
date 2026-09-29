@@ -17,6 +17,8 @@ export const stats = {
       CREATE TABLE IF NOT EXISTS stat_actives (day TEXT NOT NULL, who TEXT NOT NULL, PRIMARY KEY (day, who));
       CREATE TABLE IF NOT EXISTS stat_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS gaps (category TEXT PRIMARY KEY, n INTEGER NOT NULL, example TEXT NOT NULL, source TEXT NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL);`);
+    // Gap follow-up: status (open / in_progress / fixed / by_design) and a note on what was done.
+    for (const col of ["status TEXT NOT NULL DEFAULT 'open'", 'note TEXT', 'status_at INTEGER']) { try { db.exec(`ALTER TABLE gaps ADD COLUMN ${col}`); } catch {} }
     let row = db.prepare("SELECT value FROM stat_meta WHERE key='salt'").get();
     if (!row) { row = { value: randomBytes(24).toString('hex') }; db.prepare("INSERT INTO stat_meta VALUES ('salt', ?)").run(row.value); }
     this.salt = row.value;
@@ -48,7 +50,12 @@ export const stats = {
   gap(category, example, source = 'agent', phone = '') {
     if (!this.db || fictional(phone)) return;
     const cat = String(category || 'other').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'other', ex = scrub(example) || '(no example)';
-    this.db.prepare('INSERT INTO gaps VALUES (?,1,?,?,?,?) ON CONFLICT(category) DO UPDATE SET n=n+1, example=excluded.example, source=excluded.source, last_at=excluded.last_at').run(cat, ex, source, Date.now(), Date.now());
+    this.db.prepare('INSERT INTO gaps (category, n, example, source, first_at, last_at) VALUES (?,1,?,?,?,?) ON CONFLICT(category) DO UPDATE SET n=n+1, example=excluded.example, source=excluded.source, last_at=excluded.last_at').run(cat, ex, source, Date.now(), Date.now());
+  },
+  setGap(category, { status, note }) {
+    if (!['open', 'in_progress', 'fixed', 'by_design'].includes(status)) throw Object.assign(new Error('Unknown status.'), { status: 400 });
+    const r = this.db.prepare('UPDATE gaps SET status=?, note=?, status_at=? WHERE category=?').run(status, String(note || '').slice(0, 300), Date.now(), category);
+    if (!r.changes) throw Object.assign(new Error('Unknown gap.'), { status: 404 });
   },
   // Rall-e's plan events, counted by kind.
   planEvent({ action, data = {}, via, actor }) {
@@ -59,7 +66,7 @@ export const stats = {
     if (['rsvp', 'smsReply', 'text'].includes(action) && actor !== 'host') { const r = String(data.response || data.text || '').toLowerCase(); if (['yes', 'maybe', 'no'].includes(r)) this.bump(`rsvp_${r}`); }
   },
 
-  report({ gaps = false } = {}) {
+  report() {
     const db = this.db, since = n => day(Date.now() - n * 86400000);
     const sum = (event, from = '0000') => db.prepare('SELECT COALESCE(SUM(n),0) n FROM stat_counts WHERE event=? AND day>=?').get(event, from).n;
     const events = db.prepare('SELECT DISTINCT event FROM stat_counts').all().map(r => r.event);
@@ -72,6 +79,7 @@ export const stats = {
     const active7 = db.prepare('SELECT COUNT(DISTINCT who) n FROM stat_actives WHERE day>=?').get(since(6)).n;
     const since0 = db.prepare('SELECT MIN(day) d FROM stat_counts').get().d;
     return { since: since0, totals, week, series, people: { all: people, returning, active7 },
-      ...(gaps ? { gaps: db.prepare('SELECT category, n, example, source, first_at, last_at FROM gaps ORDER BY n DESC, last_at DESC LIMIT 100').all() } : {}) };
+      gaps: db.prepare('SELECT category, n, example, source, first_at, last_at, status, note, status_at FROM gaps ORDER BY n DESC, last_at DESC LIMIT 500').all()
+        .map(g => ({ ...g, again: g.status === 'fixed' && g.status_at && g.last_at > g.status_at })) }; // "seen again since it was marked fixed"
   }
 };

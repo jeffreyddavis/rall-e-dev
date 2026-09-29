@@ -58,7 +58,7 @@ export default function OpsPage() {
     </nav>
     {tab === 'people' && alerts.length > 0 && <button className={`ops-alert ${alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}`} onClick={() => setTab('usage')}>⚠ {alerts.map(c => c.name.split(' (')[0]).join(', ')} {alerts.length === 1 ? 'needs' : 'need'} attention before a demo</button>}
     {error && <p className="error ops-error" role="alert">{error}</p>}
-    {tab === 'insights' && <Insights data={insights} loading={loadingInsights} onRefresh={loadInsights} ago={ago}/>}
+    {tab === 'insights' && <Insights data={insights} loading={loadingInsights} onRefresh={loadInsights} ago={ago} onSaveGap={async (category, d) => { await call('gap', { category, ...d }); await loadInsights(); }}/>}
     {tab === 'usage' && <section className="ops-usage">
       <div className="ops-usage-head"><h2>Service usage</h2><span>{usage ? `Checked ${ago(usage.at)}` : ''}</span><button className="ops-link" disabled={loadingUsage} onClick={loadUsage}><RefreshCw size={14} className={loadingUsage ? 'spin' : ''}/>Refresh</button></div>
       {!usage && <LoaderCircle className="spin"/>}

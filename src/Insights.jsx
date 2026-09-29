@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 // Insights tab of the dashboard: anonymous, long-term product numbers (they survive conversation wipes) and, for the
 // operator only, "gaps": what people asked for that Rall-e couldn't do, with one anonymized example each.
@@ -21,7 +21,7 @@ function Bars({ title, data, field, unit }) {
     </div></figure>;
 }
 
-export default function Insights({ data, onRefresh, loading, ago }) {
+export default function Insights({ data, onRefresh, loading, ago, onSaveGap }) {
   if (!data) return <p className="ins-empty">Loading…</p>;
   const t = data.totals, w = data.week, n = k => t[k] || 0, wk = k => w[k] || 0;
   const tiles = [['People reached', data.people.all, `${data.people.active7} active this week`], ['Coming back', data.people.returning, 'texted on 2+ days'],
@@ -36,10 +36,32 @@ export default function Insights({ data, onRefresh, loading, ago }) {
       <table><thead><tr><th/><th>All time</th><th>This week</th></tr></thead><tbody>
         {items ? items.map(row) : searches.length ? [...searches.map(k => row([k, nice(k)])), row(['searches_empty', 'Searches that found nothing'])] : <tr><td colSpan={3} className="ins-muted">No searches yet</td></tr>}
       </tbody></table></article>)}</div>
-    {data.gaps && <article className="ins-group ins-gaps"><h3>Couldn’t do / failed <small>one anonymized example per type · only you see this</small></h3>
-      {data.gaps.length ? <table><thead><tr><th>Type</th><th>Times</th><th>Example ask</th><th>Last</th></tr></thead><tbody>
-        {data.gaps.map(g => <tr key={g.category}><td><b>{g.category.replace(/_/g, ' ')}</b>{g.source === 'auto' && <i>auto</i>}</td><td>{g.n}</td><td>{g.example}</td><td className="ins-muted">{ago(g.last_at)}</td></tr>)}
-      </tbody></table> : <p className="ins-muted">Nothing yet. Every time Rall-e says it can’t do something, or something fails, it shows up here.</p>}
-    </article>}
+    {data.gaps && <Gaps gaps={data.gaps} canEdit={data.canEdit} onSave={onSaveGap} ago={ago}/>}
   </section>;
+}
+
+const STATUS = { open: 'Open', in_progress: 'In progress', fixed: 'Fixed', by_design: 'By design' };
+const PAGE = 10;
+// "Couldn't do / failed": most frequent first, 10 per page. The operator can set a status and a note on each.
+function Gaps({ gaps, canEdit, onSave, ago }) {
+  const [page, setPage] = useState(0), [editing, setEditing] = useState(null), [draft, setDraft] = useState({ status: 'open', note: '' }), [saving, setSaving] = useState(false);
+  const pages = Math.max(1, Math.ceil(gaps.length / PAGE)), shown = gaps.slice(page * PAGE, page * PAGE + PAGE);
+  useEffect(() => { if (page >= pages) setPage(pages - 1); }, [pages]);
+  const open = gaps.filter(g => !['fixed', 'by_design'].includes(g.status)).length;
+  async function save(category) { setSaving(true); try { await onSave(category, draft); setEditing(null); } finally { setSaving(false); } }
+  return <article className="ins-group ins-gaps"><h3>Couldn’t do / failed <small>{gaps.length} types · {open} still open · one anonymized example each</small></h3>
+    {gaps.length ? <>
+      <div className="ins-table-wrap"><table><thead><tr><th>Type</th><th>Times</th><th>Example ask</th><th>Status</th><th>Notes</th><th>Last</th></tr></thead><tbody>
+        {shown.map(g => <tr key={g.category}>
+          <td><b>{g.category.replace(/_/g, ' ')}</b>{g.source !== 'agent' && <i>{g.source === 'auto' ? 'auto' : 'reported'}</i>}</td>
+          <td>{g.n}</td><td>{g.example}</td>
+          {editing === g.category ? <><td><select value={draft.status} onChange={e => setDraft({ ...draft, status: e.target.value })}>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
+            <td className="ins-note-edit"><textarea rows={2} maxLength={300} value={draft.note} onChange={e => setDraft({ ...draft, note: e.target.value })}/><span><button className="button primary" disabled={saving} onClick={() => save(g.category)}>Save</button><button className="ops-link" onClick={() => setEditing(null)}>Cancel</button></span></td></>
+            : <><td><span className={`ins-status ${g.status}`}>{STATUS[g.status] || 'Open'}</span>{g.again && <em className="ins-again" title="Seen again after it was marked fixed">seen again</em>}</td>
+              <td className="ins-note">{g.note || <span className="ins-muted">—</span>}{canEdit && <button className="ops-link" onClick={() => { setEditing(g.category); setDraft({ status: g.status || 'open', note: g.note || '' }); }}>Edit</button>}</td></>}
+          <td className="ins-muted">{ago(g.last_at)}</td></tr>)}
+      </tbody></table></div>
+      {pages > 1 && <nav className="ins-pager"><button className="ops-link" disabled={page === 0} onClick={() => setPage(page - 1)}>← Previous</button><span>Page {page + 1} of {pages}</span><button className="ops-link" disabled={page >= pages - 1} onClick={() => setPage(page + 1)}>Next →</button></nav>}
+    </> : <p className="ins-muted">Nothing yet. Every time Rall-e says it can’t do something, or something fails, it shows up here.</p>}
+  </article>;
 }
