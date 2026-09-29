@@ -7,3 +7,6 @@ playwright-report/
 *.log
 .local/
 .ssh-known-hosts*
+*.env
+.env.*
+!.env.example

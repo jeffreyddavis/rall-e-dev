@@ -69,7 +69,7 @@ test('live mode texts only approved testers, queues through the messaging servic
   const t = setup({ SMS_MODE: 'live', SMS_ALLOWED_RECIPIENTS: `${HOST},${MIKE}` });
   t.text('+13105550199', 'hello'); assert.equal(t.out('+13105550199').length, 0); // not a tester: cannot start a plan
   planByText(t);
-  assert.match(t.last(HOST), /Invited Mike by text/); assert.match(t.last(HOST), /Dave can’t be texted .*\nDave: https/s);
+  assert.match(t.last(HOST), /Invited Mike by text/); assert.match(t.last(HOST), /Dave hasn’t turned on Rall-e texts yet.*\nDave: https/s);
   assert.equal(t.out(DAVE)[0].status, 'blocked'); assert.equal(t.out(DAVE)[0].error, 'not-a-tester');
   await t.sms.idle();
   assert.ok(t.sent.length >= 6); assert.ok(t.sent.every(p => p.messagingServiceSid && !p.from && [HOST, MIKE].includes(p.to)));
@@ -139,7 +139,7 @@ test('someone who signs up from a shared night can join it; the host is told and
   const hostThread = t.sms.flow.threadsFor(HOST).find(x => x.role === 'host'), share = t.store.shareToken(hostThread.s, hostThread.digest);
   t.sms.flow.createHost(TORI, 'Mike'); // a new member whose first name clashes with a guest
   const r = t.sms.flow.joinShared(TORI, 'Mike', share);
-  assert.match(r.link, /\/p\//); assert.match(t.last(TORI), /You’re in for Jeff’s night/);
+  assert.match(r.link, /\/p\//); assert.match(t.last(TORI), /You’re in for Jeff’s plan/);
   assert.match(t.last(HOST), /Mike 2 joined .* from the shared link/);
   assert.equal(t.sms.flow.joinShared(TORI, 'Mike', share).already, 'guest'); // no duplicates
   assert.equal(t.sms.flow.joinShared(HOST, 'Jeff', share).already, 'host');
@@ -147,4 +147,21 @@ test('someone who signs up from a shared night can join it; the host is told and
   assert.ok(!s.plan.participants.some(p => p.name === 'Mike 2'));
   assert.ok(!t.sms.flow.threadsFor(TORI).some(x => x.digest === hostThread.digest)); // no more updates
   t.store.close();
+});
+
+test('a friend invited by link can turn on texts from their invite page (consent + code), then gets plan updates', async () => {
+  const { Signup } = await import('../server/signup.mjs');
+  const t = setup({ SMS_MODE: 'live', SMS_ALLOWED_RECIPIENTS: HOST }), DEB = '+19062841611';
+  t.text(HOST, 'hey'); t.text(HOST, 'Jeff'); t.text(HOST, 'yes'); t.text(HOST, '4'); t.text(HOST, 'yes'); t.text(HOST, 'Deb 906-284-1611');
+  const hostThread = t.sms.flow.threadsFor(HOST)[0], deb = hostThread.s.plan.participants.find(p => p.name === 'Deb');
+  assert.match(t.last(HOST), /Deb hasn’t turned on Rall-e texts yet/);
+  const signup = new Signup(t.store, t.sms);
+  assert.throws(() => signup.sendCode({ phone: DEB, join: 'guest-invite' }), /Tick the box/);
+  signup.sendCode({ phone: DEB, join: 'guest-invite', consent: true });
+  const code = /code is (\d{6})/.exec(t.store.db.prepare("SELECT body FROM sms_log WHERE phone=? AND kind='otp'").get(DEB).body)[1];
+  signup.verify({ phone: DEB, code });
+  assert.deepEqual(t.sms.flow.guestTexts(deb.invite, DEB), { texting: true });
+  assert.ok(t.sms.allowed.has(DEB)); assert.match(t.last(DEB), /you’re in the loop for Jeff’s plan/);
+  t.text(HOST, 'Running late, sorry all'); assert.match(t.last(DEB), /Jeff: Running late, sorry all/);
+  await t.sms.idle(); t.store.close();
 });

@@ -146,7 +146,7 @@ export class TextFlow {
     const { s, person } = this.store.joinShared(share, name);
     this.link(phone, digest, s, 'guest', person.id);
     const first = eventById(s.plan.stops[0]);
-    this.sms.deliver(phone, `You’re in for ${s.name}’s night: ${s.plan.title}${first ? ` (starts at ${first.venue})` : ''}. Your page: ${this.link_(s, person)}\nText me here with questions or ideas. Texts to me are private; say “tell the group…” to share with everyone. Reply STOP to opt out.`, { kind: 'invite' });
+    this.sms.deliver(phone, `You’re in for ${s.name}’s plan: ${s.plan.title}${first ? ` (starts at ${first.venue})` : ''}. Your page: ${this.link_(s, person)}\nText me here with questions or ideas. Texts to me are private; say “tell the group…” to share with everyone. Reply STOP to opt out.`, { kind: 'invite' });
     return { link: this.link_(s, person) };
   }
   // ---------- option sets (the /e/<id>?s=<set> page) ----------
@@ -355,7 +355,7 @@ export class TextFlow {
     }
     const parts = [];
     if (texted.length) parts.push(`Invited ${list(texted.map(x => x.name))} by text.`);
-    if (blocked.length) parts.push(`${list(blocked.map(x => x.name))} can’t be texted from this demo (not an approved tester or opted out). Forward their link:\n${blocked.map(x => `${x.name}: ${this.link_(s, x)}`).join('\n')}`);
+    if (blocked.length) parts.push(`${list(blocked.map(x => x.name))} ${blocked.length === 1 ? 'hasn’t' : 'haven’t'} turned on Rall-e texts yet, so I can’t text ${blocked.length === 1 ? 'them' : 'them'} first. Forward ${blocked.length === 1 ? 'this personal link' : 'these personal links'}; ${blocked.length === 1 ? 'they' : 'each'} can turn on texts from the page in one step:\n${blocked.map(x => `${x.name}: ${this.link_(s, x)}`).join('\n')}`);
     if (linkOnly.length) parts.push(`Forward these personal links:\n${linkOnly.map(x => `${x.name}: ${this.link_(s, x)}`).join('\n')}`);
     parts.push(this.agent.enabled ? 'I’ll text you as people reply.' : 'I’ll text you as people reply. Reply STATUS anytime, CONFIRM to lock it in, or just text me a message for the group.');
     return parts.join('\n');
@@ -444,6 +444,15 @@ export class TextFlow {
     this.db.prepare('DELETE FROM sms_pending WHERE phone=?').run(phone);
     const status = this.sms.deliver(phone, `Rall-e: you’ll get updates on ${s.plan.title} here as friends reply. Text a message for the group anytime, or STATUS, CONFIRM, HELP. Reply STOP to opt out.`, { kind: 'welcome' });
     return { status };
+  }
+  // A friend invited by link turned on texts from their invite page (consent box + texted code): link their phone
+  // to their spot on the plan and say hello, so from now on they get updates and can text Rall-e about it.
+  guestTexts(invite, phone) {
+    const { row, s, person } = this.store.guest(invite);
+    this.linkGuest(row.session, s, person.id, phone);
+    this.sms.deliver(phone, `Rall-e: you’re in the loop for ${s.name}’s plan: ${s.plan.title}. I’ll text you when anything changes. Reply here with questions or ideas; say “tell the group…” to message everyone. Reply STOP to opt out.`, { kind: 'invite' });
+    this.sendCard(phone);
+    return { texting: true };
   }
   linkGuest(digest, s, participant, phone) { this.link(phone, digest, s, 'guest', participant); const p = s.plan.participants.find(x => x.id === participant); if (p) this.remember(digest, p.name, phone); }
 

@@ -43,7 +43,9 @@ Showing what you can do (see "Features" in the situation):
 - But never pile a second thing on while they're in the middle of setting something up (answering your questions to make a plan, inviting people, picking an option). Call queue_feature instead, finish the current thing, and bring it up in the reply where that's done, tied to what they said. E.g. after the invite goes out: "Done, I texted Maya. And since you mentioned she's vegetarian, I can keep that on file (allergies too) so every spot I suggest works for her. Want me to send the secure link?"
 - Unprompted self-promotion (tips): only when it clearly helps, one at a time, never one they've already seen, and not when the situation says tips aren't allowed now. Most replies mention no feature at all. Call mention_feature with why=tip.
 - Using a feature (sending cards or a link) counts automatically.
-- Whenever you tell them you can't do something they asked for, or something failed or came up empty, also call log_gap (anonymous, for the team). Then still help as much as you can.`;
+- Whenever you tell them you can't do something they asked for, or something failed or came up empty, also call log_gap (anonymous, for the team). Then still help as much as you can.
+- Don't assume plans happen at night. Match their timing (a day trip, brunch, an afternoon with the kids, a weekend) and call it a plan, outing or day rather than "the night" unless it really is an evening.
+- You can only text people who have opted in to Rall-e (the test group and anyone who turned on texts from a Rall-e page). When a host wants to invite someone, never promise to text them: ask for their name (and number, so it's saved for later) and explain they'll get a personal link to forward. If that person has already opted in, invite texts them directly and the result tells you. Friends can turn on texts from their invite page in one step.`;
 
 const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
@@ -137,7 +139,7 @@ export class Agent {
       T('rsvp', 'Record whether they are going.', { response: { type: 'string', enum: ['yes', 'maybe', 'no'] } }, ['response']),
       T('suggest', 'Suggest a different outing from the catalogue instead of the current plan (only if the plan is open to suggestions).', { event_id: eventId, reason: { type: 'string' } }, ['event_id']),
       T('vote', 'Vote for (or un-vote) a numbered suggestion.', { number: { type: 'integer' } }, ['number']),
-      T('get_my_link', 'Their personal page for this plan: the whole night (every stop, friends\' ideas and who picked what) where they can RSVP and tap My pick. Use when they ask to see the plan or the night.'),
+      T('get_my_link', 'Their personal page for this plan: the whole plan (every stop, friends\' ideas and who picked what) where they can RSVP and tap My pick. Use when they ask to see the plan.'),
       T('message_group', 'Share their message, word for word, with everyone else on the plan. Only when they clearly want the group to see it.', { text: { type: 'string', description: 'Their exact words' } }, ['text'])];
     return [...common, ...find,
       ...(live ? [] : [T('recommend', 'Pick a catalogue outing to pitch. Use a category if they expressed one; set another=true for a different idea than the current one.', { category: { type: 'string', enum: CATEGORIES }, another: { type: 'boolean' } })]),
@@ -153,7 +155,7 @@ export class Agent {
       T('cancel_plan', 'Call off the plan; friends are told.'),
       T('mark_happened', 'Mark the outing as done (after it happened).'),
       T('start_new_plan', 'Start a brand-new, unrelated plan. Rarely needed: to change the current plan use reopen_plan / add_stop / pick_suggestion instead. The current plan closes and friends need re-inviting (saved contacts are re-invited by name automatically). Only when the host explicitly wants something new.'),
-      T('get_links', 'Get the host\'s own evening-view link (the whole night: every stop plus friends\' ideas and picks) and each friend\'s personal plan link. Use when they ask to see the plan, the night, or the links.'),
+      T('get_links', 'Get the host\'s own plan page link (the whole plan: every stop plus friends\' ideas and picks) and each friend\'s personal plan link. Use when they ask to see the plan or the links.'),
       T('message_group', 'Share the host\'s message, word for word, with everyone on the plan. Only when they clearly want the group to see it.', { text: { type: 'string', description: 'Their exact words' } }, ['text'])];
   }
   async run(phone, name, input, ctx, text) {

@@ -125,10 +125,20 @@ const server = http.createServer(async (req, res) => {
         if (sub === '/card' && req.method === 'DELETE') return json(res, 200, await vault.removeCard(token));
         fail(405, 'Method not allowed.');
       }
+      // A friend with an invite link turns on texts: consent box, then a code texted to their phone (double opt-in).
+      const guestTexts = /^\/api\/guest\/([\w-]+)\/texts(\/verify)?$/.exec(url.pathname);
+      if (guestTexts && req.method === 'POST') {
+        store.guest(guestTexts[1]); // must be a live invite
+        const input = await body(req), ip = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
+        if (!guestTexts[2]) return json(res, 200, signup.sendCode({ phone: input.phone, join: 'guest-invite', consent: input.consent === true }, ip));
+        const v = signup.verify({ phone: input.phone, code: input.code });
+        return json(res, 200, sms.flow.guestTexts(guestTexts[1], normalizePhone(input.phone)));
+      }
       const match = /^\/api\/guest\/([\w-]+)$/.exec(url.pathname);
       if (match) {
         const shareOf = () => { const { s, row } = store.guest(match[1]); return `${publicBase}/s/${store.shareToken(s, row.session)}`; };
-        if (req.method === 'GET') { const { s, person } = store.guest(match[1]); return json(res, 200, { ...store.view(s, person.id), shareUrl: shareOf(), textNumbers: textNumbers() }); }
+        const texting = () => { const { row, person } = store.guest(match[1]); return Boolean(sms.db.prepare('SELECT 1 FROM sms_threads WHERE digest=? AND participant=?').get(row.session, person.id)); };
+        if (req.method === 'GET') { const { s, person } = store.guest(match[1]); return json(res, 200, { ...store.view(s, person.id), shareUrl: shareOf(), textNumbers: textNumbers(), texting: texting() }); }
         if (req.method === 'POST') { const { action, ...data } = await body(req); if (['smsReply', 'chat'].includes(action)) fail(403, 'Use the signed SMS webhook.'); return json(res, 200, { ...store.guestAction(match[1], action, data), shareUrl: shareOf(), textNumbers: textNumbers() }); }
         fail(405, 'Method not allowed.');
       }
@@ -237,8 +247,8 @@ const server = http.createServer(async (req, res) => {
       let tags = '';
       try {
         if (url.pathname.startsWith('/e/')) { const e = eventById(pageMatch[1]); if (e) tags = previewTags({ title: e.short, description: [e.time, e.venue, e.area].filter(Boolean).join(' · '), image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}/e/${e.id}` }); }
-        else if (url.pathname.startsWith('/s/')) { const s = store.shared(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name}'s night: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'}, planned with Rall-e`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
-        else if (url.pathname.startsWith('/n/')) { const { s } = store.night(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `Your night: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'} · ${s.plan.participants.filter(p => p.response === 'yes').length + 1} going`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
+        else if (url.pathname.startsWith('/s/')) { const s = store.shared(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name}'s plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'}, planned with Rall-e`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
+        else if (url.pathname.startsWith('/n/')) { const { s } = store.night(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `Your plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'} · ${s.plan.participants.filter(p => p.response === 'yes').length + 1} going`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
         else { const { s } = store.guest(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name} invited you: ${s.plan.title}`, description: [e.time, e.venue].filter(Boolean).join(' · '), image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
       } catch {}
       const html = (await readFile(resolve(root, 'dist', 'index.html'), 'utf8')).replace(/<title>[^<]*<\/title>/, tags ? '' : '$&').replace('</head>', `${tags}</head>`);

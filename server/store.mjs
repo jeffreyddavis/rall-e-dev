@@ -82,8 +82,8 @@ export class Store {
   // Someone who opened a shared night and signed up joins it as a friend who's in. Works on confirmed plans too.
   joinShared(token, name) {
     const { s, digest } = this.sharedAt(token), p = s.plan;
-    if (!['proposed', 'confirmed'].includes(p.status)) fail(409, 'This night is closed to new people.');
-    if (p.participants.length >= 20) fail(409, 'This night is full.');
+    if (!['proposed', 'confirmed'].includes(p.status)) fail(409, 'This plan is closed to new people.');
+    if (p.participants.length >= 20) fail(409, 'This plan is full.');
     let label = clean(name, 30) || 'Friend';
     for (let n = 2; [s.name, ...p.participants.map(x => x.name)].some(x => x.toLowerCase() === label.toLowerCase()); n++) label = `${clean(name, 30)} ${n}`;
     const person = { id: randomUUID(), name: label, response: 'yes', invite: token_(), consent: true, stopped: false, joined: 'share' };
