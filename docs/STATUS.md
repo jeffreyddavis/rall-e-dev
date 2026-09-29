@@ -23,11 +23,10 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - Text-first signups get asked about their area code's state.
   - The agent treats a guess as unconfirmed until they say yes.
 - **Travel between stops:** plan pages show walk or drive time under each stop, with a directions link. It's also in the agent's view and in itinerary texts.
-  - **Real times need the Google Routes API** enabled on our Maps key. Until then, times are straight-line estimates labeled "about".
+  - Real times come from the Google Routes API (enabled 09-29). If Routes fails, times fall back to straight-line estimates labeled "about".
 - **Tests:** 68 pass.
 
 ## Open items / next
-- **Enable the Google Routes API** (Cloud Console → APIs → Routes API → Enable), and allow it in the Maps key's API restrictions. Travel times then switch from estimates to real ones automatically, within a day.
 - **Invite texting (see the project doc `claude/invite-texting-research.md`):**
   - Build a "text the invite from your phone" button: a prefilled `sms:` link or share sheet, sent person-to-person, so no consent issue.
   - Start registering a Standard/Low-Volume Standard 10DLC brand. It needs an EIN; use a new Messaging Service so the current line keeps working.
