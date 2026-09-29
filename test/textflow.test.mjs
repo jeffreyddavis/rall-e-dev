@@ -184,3 +184,15 @@ test('an invited friend who texts Rall-e first is opted in and gets the opt-out 
   assert.ok(t.sms.opsThread(mike).messages.length > 0); // (the people list hides fictional 555 lab numbers)
   t.store.close();
 });
+
+test('option cards on plain SMS go as picture messages with a title (no link preview there)', async () => {
+  const t = setup();
+  const ids = (await import('../server/catalog.mjs')).EVENTS.slice(0, 2).map(e => e.id);
+  const phone = t.sms.labPhone(HOST);
+  t.sms.flow.agent.pendingCards.set(phone, ids);
+  await t.sms.flow.finish(phone, 'Here are two ideas');
+  const rows = t.store.db.prepare("SELECT body, media FROM sms_log WHERE phone=? AND kind='option' ORDER BY rowid").all(phone);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].media, /\/og\/e\/.+\.jpg$/); assert.match(rows[0].body, /\nhttps?:\/\/\S+\/e\//);
+  t.store.close();
+});

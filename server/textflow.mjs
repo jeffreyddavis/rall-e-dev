@@ -134,8 +134,19 @@ export class TextFlow {
     // Render the preview images first: iMessage builds the card as the link is sent, and a slow image leaves a grey box.
     if (cards.length && this.sms.og) await Promise.race([Promise.all(cards.slice(0, 3).map(id => this.sms.og.render(eventById(id)).catch(() => null))), new Promise(r => setTimeout(r, 8000))]);
     // At most 3 preview cards (more floods the thread); the set behind every card holds all the options.
-    for (const id of cards.slice(0, 3)) this.sms.deliver(phone, `${this.sms.base || 'https://rall-e.ai'}/e/${id}?s=${set}`, { kind: 'option' });
+    // Plain SMS (Android, or anyone on green bubbles) draws no link preview, so there the card goes as a picture message:
+    // the same preview image attached, with a one-line title above the link.
+    const base = this.sms.base || 'https://rall-e.ai', green = this.onSms(phone);
+    for (const id of cards.slice(0, 3)) {
+      const link = `${base}/e/${id}?s=${set}`, e = eventById(id);
+      if (green && e) this.sms.deliver(phone, `${e.short}${e.time ? ` · ${e.time}` : ''}\n${link}`, { kind: 'option', media: `${base}/og/e/${id}.jpg` });
+      else this.sms.deliver(phone, link, { kind: 'option' });
+    }
     if (this.threadsFor(phone).length) this.sendCard(phone); // once per phone; no-op afterwards
+  }
+  onSms(phone) {
+    if (this.sms.provider !== 'sendblue') return true;
+    return this.sms.phoneService(phone)?.service === 'SMS' || this.sms.lastIn?.get(phone)?.service === 'SMS' || this.sms.sendblueRefused?.has(phone);
   }
   // ---------- joining a shared night ----------
   hostPhone(digest) { return this.db.prepare("SELECT phone FROM sms_threads WHERE digest=? AND role='host' ORDER BY updated DESC").get(digest)?.phone || ''; }
