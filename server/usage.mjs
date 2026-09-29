@@ -71,6 +71,12 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
       official?.error ? `Cost report error: ${official.error}` : !env.ANTHROPIC_ADMIN_KEY ? 'Prepaid credit balance isn’t available by API. Check the Claude Console, and turn on auto-reload so credits can’t run out mid-demo.' : null].filter(Boolean),
     link: 'https://platform.claude.com/settings/billing' });
 
+  // OpenAI: the backup brain when Claude is down.
+  const oa = db.prepare('SELECT COALESCE(SUM(calls),0) calls, COALESCE(SUM(input),0) input, COALESCE(SUM(output),0) output FROM openai_usage WHERE day>=?').get(start);
+  const down = sms.flow.agent.claudeDownUntil > Date.now();
+  cards.push({ id: 'openai', name: 'OpenAI (backup brain)', status: env.OPENAI_API_KEY ? (down ? 'warn' : 'ok') : 'off', meter: null,
+    facts: env.OPENAI_API_KEY ? [down ? 'Claude is down: replies are coming from the backup right now' : 'Standing by: takes over automatically if Claude is down', `${oa.calls} backup calls this month (~$${((oa.input * 2 + oa.output * 10) / 1e6).toFixed(2)} at ${sms.flow.agent.openaiModel} list prices)`]
+      : ['Not set up: add OPENAI_API_KEY to .env so Rall-e keeps answering if Claude is down.'], link: 'https://platform.openai.com/usage' });
   // Twilio (SMS for Android and anyone not on iMessage)
   if (sms.twilioReady) {
     const sid = env.TWILIO_ACCOUNT_SID, auth = 'Basic ' + Buffer.from(`${env.TWILIO_API_KEY_SID || sid}:${env.TWILIO_API_KEY_SECRET || env.TWILIO_AUTH_TOKEN}`).toString('base64');

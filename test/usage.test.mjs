@@ -18,6 +18,7 @@ test('usage report: counts our API calls and AI tokens, reads provider accounts,
   assert.equal(card('serpapi').status, 'critical'); assert.equal(r.cards[0].id, 'serpapi'); // most urgent first
   assert.equal(card('anthropic').meter.used, 7); assert.equal(card('anthropic').status, 'ok'); // $2 in + $5 out = $7 of $10
   assert.match(card('google').facts.join(' '), /text search: 1 of/);
+  assert.equal(card('openai').status, 'off'); // no backup key in this test
   store.close();
 });
 
