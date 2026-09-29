@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink } from 'lucide-react';
+import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2 } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './ops.css';
 
@@ -14,6 +14,7 @@ export default function OpsPage() {
   const [data, setData] = useState(null), [phone, setPhone] = useState(''), [thread, setThread] = useState(null);
   const [feature, setFeature] = useState(''), [note, setNote] = useState(''), [say, setSay] = useState(''), [showSay, setShowSay] = useState(false);
   const [busy, setBusy] = useState(false), [toast, setToast] = useState(''), end = useRef(null);
+  const [wipe, setWipe] = useState(null), [wipeConfirm, setWipeConfirm] = useState('');
   const [tab, setTab] = useState('people'), [usage, setUsage] = useState(null), [loadingUsage, setLoadingUsage] = useState(false);
   async function call(path, input) {
     const r = await fetch(`/api/ops/${path}`, { method: input ? 'POST' : 'GET', headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' }, ...(input ? { body: JSON.stringify(input) } : {}) });
@@ -76,7 +77,13 @@ export default function OpsPage() {
           </span></button>)}
       </section>
       {phone && <section className="ops-chat">
-        <header><button className="ops-back" onClick={() => setPhone('')} aria-label="Back to people"><ArrowLeft size={18}/></button><strong>{who}</strong><small>{last4(phone)}{person?.channel ? ` · ${person.channel}` : ''}</small>{thread?.busy && <em><RefreshCw size={13} className="spin"/> typing…</em>}</header>
+        <header><button className="ops-back" onClick={() => setPhone('')} aria-label="Back to people"><ArrowLeft size={18}/></button><strong>{who}</strong><small>{last4(phone)}{person?.channel ? ` · ${person.channel}` : ''}</small>{thread?.busy && <em><RefreshCw size={13} className="spin"/> typing…</em>}{!viewer && <button className="ops-wipe-btn" onClick={() => { setWipe(wipe ? null : 'texts'); setWipeConfirm(''); }}><Trash2 size={15}/>Wipe…</button>}</header>
+        {wipe && !viewer && <div className="ops-wipe">
+          <label><input type="radio" checked={wipe === 'texts'} onChange={() => setWipe('texts')}/><span><strong>Wipe their texts</strong><small>Deletes their conversation with Rall-e and their group messages. They stay on their plans and can keep texting.</small></span></label>
+          <label><input type="radio" checked={wipe === 'person'} onChange={() => setWipe('person')}/><span><strong>Remove {who} completely</strong><small>Also takes them off every plan, deletes plans they host, their vault, location and sign-up.{person?.tester ? ' They’re a core tester, so Rall-e can still text them.' : ' Rall-e won’t text them again unless they sign up again.'}</small></span></label>
+          <p>This is permanent. Type the last 4 digits of their number ({phone.slice(-4)}) to confirm.</p>
+          <div className="ops-say"><input value={wipeConfirm} onChange={e => setWipeConfirm(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" placeholder="Last 4 digits"/><button className="button danger" disabled={busy || wipeConfirm !== phone.slice(-4)} onClick={() => run(async () => { await call('wipe', { phone, mode: wipe, confirm: wipeConfirm }); setWipe(null); setWipeConfirm(''); if (wipe === 'person' && !person?.tester) setPhone(''); }, wipe === 'person' ? `Removed ${who}.` : `Wiped ${who}’s texts.`)}><Trash2 size={15}/>{wipe === 'person' ? 'Remove' : 'Wipe texts'}</button></div>
+        </div>}
         <div className="ops-messages">
           {(thread?.messages || []).map((m, i) => <div key={i} className={`ops-msg ${m.direction === 'in' ? 'in' : 'out'} ${m.kind}`}>
             <div className="bubble">{m.body}</div>

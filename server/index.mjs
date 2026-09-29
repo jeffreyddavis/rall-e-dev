@@ -9,6 +9,7 @@ import { Sms, normalize as normalizePhone } from './sms.mjs';
 import { Signup } from './signup.mjs';
 import { FEATURES, featureById } from './features.mjs';
 import { usageReport } from './usage.mjs';
+import { wipeTexts, removePerson } from './wipe.mjs';
 import { OgImages } from './og.mjs';
 import { eventById } from './catalog.mjs';
 
@@ -141,7 +142,7 @@ const server = http.createServer(async (req, res) => {
         if (role !== 'operator') fail(403, 'This is a view-only login.'); // the server enforces it, not just the page
         const input = await body(req), phone = normalizePhone(input.phone || '');
         if (!phone || !sms.allowed.has(phone)) fail(404, 'Not a Rall-e number.');
-        if (sms.isStopped(phone)) fail(409, 'They opted out (STOP).');
+        if (sms.isStopped(phone) && url.pathname !== '/api/ops/wipe') fail(409, 'They opted out (STOP).');
         if (url.pathname === '/api/ops/nudge') {
           const f = input.feature ? featureById(input.feature) : null, note = String(input.note || '').trim().slice(0, 600);
           const instruction = [f?.operator, note && (f ? `Extra context from the team: ${note}` : note)].filter(Boolean).join(' ');
@@ -149,6 +150,14 @@ const server = http.createServer(async (req, res) => {
           console.log(`Operator nudge -> ••• ${phone.slice(-4)}: ${f?.id || 'custom'}`);
           sms.flow.operatorNudge(phone, instruction);
           return json(res, 200, { queued: true });
+        }
+        if (url.pathname === '/api/ops/wipe') {
+          // Permanent. The operator types the last 4 digits to confirm.
+          if (String(input.confirm || '') !== phone.slice(-4)) fail(400, 'Type the last 4 digits of their number to confirm.');
+          if (sms.flow.chains.has(phone)) fail(409, 'Rall-e is replying to them right now. Try again in a few seconds.');
+          const result = input.mode === 'person' ? removePerson(sms, phone) : wipeTexts(sms, phone);
+          console.log(`Operator wipe (${input.mode === 'person' ? 'person' : 'texts'}) -> ••• ${phone.slice(-4)}`);
+          return json(res, 200, result);
         }
         if (url.pathname === '/api/ops/say') {
           const text = String(input.text || '').trim().slice(0, 1000); if (!text) fail(400, 'Write the text to send.');
