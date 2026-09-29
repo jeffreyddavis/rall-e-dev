@@ -6,6 +6,8 @@ import { FEATURES, FeatureLog, featureForTool } from './features.mjs';
 import { meter } from './usage.mjs';
 import { stats } from './stats.mjs';
 import { EVENTS, MAX_STOPS, eventById } from './catalog.mjs';
+import { legText } from './discovery.mjs';
+import { areaCodeState } from './geoguess.mjs';
 
 const CATEGORIES = ['dinner', 'live shows', 'comedy', 'museums', 'nature'];
 const digits = value => String(value || '').replace(/\D/g, '').slice(-10);
@@ -88,14 +90,17 @@ export class Agent {
     const lines = [this.channel(phone), this.features.stateLine(t.phone), `Role: ${role === 'host' ? `HOST (their name: ${s.name})` : `INVITED FRIEND (their name: ${person.name}; host: ${s.name})`}`,
       `Plan: "${p.title}" — ${({ proposed: `still being planned (${p.mode === 'loose' ? 'friends can suggest changes' : 'locked: friends cannot suggest changes'})`, confirmed: 'CONFIRMED. To change anything (stops, suggestions, switching), the host must first reopen it with reopen_plan', happened: 'already happened', dropped: 'called off' })[p.status]}. Stage: ${s.stage}.`,
       role === 'host' && this.flow.contacts(t.digest).length ? `Saved contacts (numbers on file, invite by name): ${this.flow.contacts(t.digest).join(', ')}` : '',
-      `Stops: ${p.stops.length ? p.stops.map(id => `${id} (${eventById(id).short}, ${eventById(id).time})`).join(' -> ') : 'none yet'}`,
+      `Stops: ${p.stops.length ? p.stops.map((id, i) => `${i ? ` -> [${legText(this.discovery.cachedLegs?.(p.stops)[i - 1]) || 'travel time unknown'}] -> ` : ''}${id} (${eventById(id).short}, ${eventById(id).time})`).join('') : 'none yet'}`,
       s.recommendation && !p.stops.length ? `Current recommendation being discussed: ${s.recommendation}` : '',
       `People: ${p.participants.length ? p.participants.map(x => `${x.name}=${x.response}`).join(', ') : 'nobody invited yet'}`,
       p.suggestions.length ? `Suggestions (numbered): ${p.suggestions.map((x, i) => `${i + 1}) ${eventById(x.eventId).short} by ${x.name}, ${x.votes.length} votes`).join('; ')}` : 'Suggestions: none',
       person ? `Their personal plan link: ${this.flow.link_(s, person)}` : '',
       p.participants.length ? `Recent group activity (newest first): ${(s.activity || []).slice(0, 6).map(x => x.text).join(' | ') || 'none'}` : '',
       this.flow.sms.vault.summary(t.phone),
-      this.discovery.enabled ? `Location: ${this.flow.sms.discovery.location(t.phone)?.label || 'unknown — ask or offer send_location_link'}` : '',
+      this.discovery.enabled ? (() => { const loc = this.flow.sms.discovery.location(t.phone);
+        return !loc ? 'Location: unknown — ask or offer send_location_link'
+          : loc.guess ? `Location: ${loc.label} — a GUESS from their signup (their internet connection), NOT confirmed. Their welcome text asked if it's right. If they say yes, call set_location with "${loc.label}" to confirm it; if they say no or name another place, save that instead. Don't treat it as fact until then.`
+          : `Location: ${loc.label}`; })() : '',
       this.discovery.enabled && this.discovery.recent(t.phone).length ? `Options you found for them recently (use these ids):\n${this.discovery.recent(t.phone).map(e => this.discovery.describe(e)).join('\n')}` : '',
       threads.length > 1 ? `They are on ${threads.length} plans; texts go to this one. Others: ${threads.slice(1).map((x, i) => `${i + 2}) ${x.s.plan.title}`).join('; ')}` : '',
       role === 'host' && s.stage === 'location' ? 'Next: confirm Hollywood works for them, then ask what they feel like doing.' : '',
@@ -167,7 +172,13 @@ export class Agent {
     if (name === 'queue_feature') { this.features.queue(phone, input.feature, input.reason); return 'Saved. Finish what they are doing first; bring it up right after (it will show under "Queued" in the situation).'; }
     const shown = featureForTool(name, input); if (shown) this.features.mark(phone, shown, this.operatorFor?.get(phone) ? 'operator' : 'auto');
     try {
-      if (name === 'start_account') { flow.createHost(phone, String(input.first_name || '').trim()); return this.discovery.enabled ? 'Account created. Welcome them by name and ask where they are (neighborhood, city or ZIP) so you can find things nearby.' : 'Account created. Their plans live in Hollywood, LA for this demo. Welcome them by name and ask if Hollywood works.'; }
+      if (name === 'start_account') {
+        flow.createHost(phone, String(input.first_name || '').trim());
+        if (!this.discovery.enabled) return 'Account created. Their plans live in Hollywood, LA for this demo. Welcome them by name and ask if Hollywood works.';
+        const state = areaCodeState(phone);
+        return state ? `Account created. Their phone number's area code is from ${state}, but people move, so it's only a hint: welcome them by name and ask something like "Are you around ${state}, or somewhere else?" Then save where they are with set_location (a city or ZIP is best).`
+          : 'Account created. Welcome them by name and ask where they are (neighborhood, city or ZIP) so you can find things nearby.';
+      }
       if (name === 'find_things') {
         const loc = this.discovery.location(phone);
         if (!loc) return 'Error: location unknown. Ask where they are (or use send_location_link), then save it with set_location.';
@@ -220,7 +231,13 @@ export class Agent {
           const people = (input.people || []).map(x => ({ name: String(x.name || '').trim(), phone: x.phone && digits(x.phone).length === 10 && typed.includes(digits(x.phone)) ? x.phone : '' }));
           return flow.inviteReport(phone, t, people.filter(x => x.name));
         }
-        if (name === 'add_stop') { act('addStop', { eventId: input.event_id }); return `Added. Itinerary: ${flow.itinerary(this.store.load(t.digest))}`; }
+        if (name === 'add_stop') {
+          // Work out the travel time first, so the update friends get already includes it.
+          const last = p.stops.at(-1), next = eventById(input.event_id);
+          const leg = last && next && last !== next.id && this.discovery.leg ? await Promise.race([this.discovery.leg(eventById(last), next).catch(() => null), new Promise(r => setTimeout(r, 5000))]) : null;
+          act('addStop', { eventId: input.event_id });
+          return `Added. Itinerary: ${flow.itinerary(this.store.load(t.digest))}${leg ? `\nGetting there from the previous stop: ${legText(leg)}. Mention it in a few words if useful.` : ''}`;
+        }
         if (name === 'remove_guest') { act('removeGuest', { name: input.name }); return `Removed ${input.name}. They no longer get updates about this plan.`; }
         if (name === 'remove_stop') { act('removeStop', { eventId: input.event_id }); return `Removed. Itinerary: ${flow.itinerary(this.store.load(t.digest))}`; }
         if (name === 'set_mode') { act('mode', { mode: input.mode === 'locked' ? 'locked' : 'loose' }); return `Plan is now ${input.mode}.`; }

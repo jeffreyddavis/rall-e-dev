@@ -10,6 +10,17 @@ import { stats } from './stats.mjs';
 
 const short = s => createHash('sha1').update(String(s)).digest('base64url').slice(0, 10);
 const DAY = 86400000;
+// Where a stop is, as geocoder input (address plus area, else venue plus area).
+const placeQuery = e => [e.address || e.venue, e.area].filter(Boolean).join(', ').trim();
+const distance = (a, b) => { const r = x => x * Math.PI / 180, dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); };
+// "8 min walk", "about 25 min drive", "1 hr 10 min drive".
+export const legText = l => {
+  if (!l) return ''; if (l.mode === 'same') return 'Same spot';
+  const t = l.minutes >= 60 ? `${Math.floor(l.minutes / 60)} hr${l.minutes % 60 ? ` ${l.minutes % 60} min` : ''}` : `${l.minutes} min`;
+  const miles = l.meters / 1609.34, dist = miles < 0.2 ? '' : ` · ${miles < 10 ? miles.toFixed(1) : Math.round(miles)} mi`;
+  return `${l.estimate ? 'about ' : ''}${t} ${l.mode}${dist}`;
+};
 const iso = d => new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const art = category => ({ dinner: 'dinner', food: 'dinner', comedy: 'comedy', music: 'rooftop', 'live shows': 'rooftop', nightlife: 'rooftop', nature: 'trail', outdoors: 'trail', museums: 'museum', arts: 'museum', theatre: 'comedy', sports: 'rooftop' })[category] || 'rooftop';
 function when(localDate, localTime) {
@@ -36,7 +47,9 @@ export class Discovery {
       CREATE TABLE IF NOT EXISTS profiles (phone TEXT PRIMARY KEY, location TEXT, updated INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS location_links (token TEXT PRIMARY KEY, phone TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS recent_finds (phone TEXT PRIMARY KEY, ids TEXT NOT NULL, at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS serp_cache (key TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS serp_cache (key TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS geo_cache (q TEXT PRIMARY KEY, lat REAL, lng REAL, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS travel_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
     // Plans keep referencing outings found earlier, including after a restart.
     for (const row of this.db.prepare('SELECT data FROM discovered_events WHERE fetched > ?').all(Date.now() - 60 * DAY)) registerEvent(JSON.parse(row.data));
   }
@@ -49,6 +62,62 @@ export class Discovery {
     if (!response.ok) throw new Error(`${new URL(url).host} ${response.status}: ${result?.error?.message || result?.fault?.faultstring || 'error'}`);
     return result;
   }
+
+  // ---------- travel between stops ----------
+  // Walk/drive time from one stop to the next. Real times come from the Google Routes API when the key allows it;
+  // otherwise (or if Routes fails) an honest estimate from the straight-line distance, labeled "about".
+  coords(e) {
+    if (!e) return null;
+    if (Number.isFinite(e.lat) && Number.isFinite(e.lng)) return { lat: e.lat, lng: e.lng };
+    const row = this.db.prepare('SELECT lat, lng FROM geo_cache WHERE q=?').get(placeQuery(e));
+    return row && row.lat != null ? { lat: row.lat, lng: row.lng } : null;
+  }
+  async locate(e) {
+    const known = this.coords(e); if (known || !this.keys.google || !placeQuery(e) || e.fictional) return known;
+    const q = placeQuery(e); if (this.db.prepare('SELECT 1 FROM geo_cache WHERE q=?').get(q)) return null; // tried before, no match
+    const r = await this.get(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(q)}&key=${this.keys.google}`).catch(() => ({}));
+    const at = r.results?.[0]?.geometry?.location;
+    this.db.prepare('INSERT OR REPLACE INTO geo_cache VALUES (?,?,?,?)').run(q, at?.lat ?? null, at?.lng ?? null, Date.now());
+    return at ? { lat: at.lat, lng: at.lng } : null;
+  }
+  cachedLeg(a, b) {
+    const row = a && b && this.db.prepare('SELECT data, at FROM travel_cache WHERE k=? AND at>?').get(`${a.id}>${b.id}`, Date.now() - 7 * DAY);
+    const leg = row && JSON.parse(row.data);
+    return leg && !(leg.estimate && row.at < Date.now() - DAY) ? leg : null; // estimates are retried daily in case real routing becomes available
+  }
+  async leg(a, b) {
+    const hit = this.cachedLeg(a, b); if (hit) return hit;
+    const [from, to] = await Promise.all([this.locate(a), this.locate(b)]);
+    if (!from || !to) return null;
+    const meters = distance(from, to);
+    let walk = null, drive = null, estimate = true;
+    if (this.keys.google && !(this.routesOffUntil > Date.now()) && meters > 60) {
+      try {
+        [walk, drive] = await Promise.all(['WALK', 'DRIVE'].map(mode => this.route(from, to, mode)));
+        estimate = !(walk || drive);
+      } catch (error) { this.routesOffUntil = Date.now() + 3600000; console.error('Routes:', error.message); }
+    }
+    walk ||= { minutes: Math.max(1, Math.round(meters * 1.3 / 80)), meters: Math.round(meters * 1.3) };
+    drive ||= { minutes: Math.round(meters * 1.35 / (meters < 3000 ? 400 : meters < 10000 ? 600 : meters < 40000 ? 850 : 1100)) + 3, meters: Math.round(meters * 1.35) };
+    const result = meters <= 60 ? { mode: 'same', minutes: 0, meters: 0, estimate: false }
+      : walk.minutes <= 20 ? { mode: 'walk', ...walk, estimate, drive: drive.minutes } : { mode: 'drive', ...drive, estimate, walk: walk.minutes };
+    this.db.prepare('INSERT OR REPLACE INTO travel_cache VALUES (?,?,?)').run(`${a.id}>${b.id}`, JSON.stringify(result), Date.now());
+    return result;
+  }
+  async route(from, to, travelMode) {
+    const point = p => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
+    const r = await this.get('https://routes.googleapis.com/directions/v2:computeRoutes', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters' },
+      body: JSON.stringify({ origin: point(from), destination: point(to), travelMode }) });
+    const route = r.routes?.[0]; if (!route) return null;
+    return { minutes: Math.max(1, Math.round(parseInt(route.duration, 10) / 60)), meters: route.distanceMeters || 0 };
+  }
+  // Legs between consecutive stops (null where a place can't be located).
+  async legs(ids) {
+    const events = ids.map(id => eventById(id));
+    return Promise.all(events.slice(1).map((e, i) => this.leg(events[i], e).catch(() => null)));
+  }
+  cachedLegs(ids) { const events = ids.map(id => eventById(id)); return events.slice(1).map((e, i) => this.cachedLeg(events[i], e)); }
 
   // ---------- location ----------
   location(phone) { const row = this.db.prepare('SELECT location FROM profiles WHERE phone=?').get(phone); return row?.location ? JSON.parse(row.location) : null; }
@@ -132,6 +201,7 @@ export class Discovery {
       const price = ev.priceRanges?.[0];
       return this.shape({ id: `tm_${short(ev.id)}`, source: 'Ticketmaster', category: cat, short: ev.name, venue: v.name || 'Venue TBA', area: [v.city?.name, v.state?.stateCode].filter(Boolean).join(', '),
         address: v.address?.line1, time: when(ev.dates?.start?.localDate, ev.dates?.start?.localTime), startsAt: ev.dates?.start?.dateTime,
+        lat: v.location?.latitude ? Number(v.location.latitude) : null, lng: v.location?.longitude ? Number(v.location.longitude) : null,
         price: price ? Math.round(price.min) : null, priceText: price ? `$${Math.round(price.min)}${price.max > price.min ? `–$${Math.round(price.max)}` : ''}` : 'See listing',
         age: ev.ageRestrictions?.legalAgeEnforced ? '21+' : 'See listing', url: ev.url, image: ev.images?.find(i => i.ratio === '16_9')?.url, description: `${c.genre?.name || c.segment?.name || 'Live event'} at ${v.name || 'a local venue'}.` });
     });
@@ -151,13 +221,14 @@ export class Discovery {
   async places(loc, what, category) {
     const text = `${what || PLACE_QUERIES[category] || 'fun things to do'} near ${loc.label}`;
     const r = await this.get('https://places.googleapis.com/v1/places:searchText', { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.rating,places.userRatingCount,places.priceLevel,places.primaryTypeDisplayName,places.googleMapsUri,places.editorialSummary,places.currentOpeningHours.weekdayDescriptions,places.currentOpeningHours.openNow,places.photos' },
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'places.id,places.location,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.rating,places.userRatingCount,places.priceLevel,places.primaryTypeDisplayName,places.googleMapsUri,places.editorialSummary,places.currentOpeningHours.weekdayDescriptions,places.currentOpeningHours.openNow,places.photos' },
       body: JSON.stringify({ textQuery: text, maxResultCount: 8, locationBias: { circle: { center: { latitude: loc.lat, longitude: loc.lng }, radius: 15000 } } }) });
     const levels = { PRICE_LEVEL_INEXPENSIVE: '$', PRICE_LEVEL_MODERATE: '$$', PRICE_LEVEL_EXPENSIVE: '$$$', PRICE_LEVEL_VERY_EXPENSIVE: '$$$$' };
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
     return (r.places || []).map(p => {
       const type = p.primaryTypeDisplayName?.text || 'Place', hours = p.currentOpeningHours?.weekdayDescriptions?.find(h => h.startsWith(today));
       return this.shape({ id: `gp_${short(p.id)}`, source: 'Google Places', kind: 'place', category: /restaurant|food|cafe|bakery|bistro|grill|pizz|sushi|taco/i.test(type) ? 'dinner' : /bar|pub|lounge|night/i.test(type) ? 'nightlife' : /museum|gallery|art/i.test(type) ? 'museums' : /park|trail|garden|beach|hik/i.test(type) ? 'nature' : type.toLowerCase(),
+        lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null,
         short: p.displayName?.text || 'A local spot', venue: p.displayName?.text || 'A local spot', area: p.shortFormattedAddress || p.formattedAddress || loc.label, address: p.formattedAddress,
         time: hours ? `Open ${hours.replace(`${today}: `, 'today ')}` : 'Check hours', price: null, priceText: levels[p.priceLevel] || 'See listing',
         rating: p.rating ? `${p.rating}★ (${p.userRatingCount || 0})` : null, photoRef: p.photos?.[0]?.name || null, image: p.photos?.[0]?.name ? `${this.base}/img/p/gp_${short(p.id)}` : null, age: 'See listing', url: p.googleMapsUri, description: p.editorialSummary?.text || `${type}${p.rating ? `, rated ${p.rating}★` : ''}.` });

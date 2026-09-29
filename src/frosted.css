@@ -79,3 +79,6 @@
 .guest-texts .consent span{font-size:11px;line-height:1.4;color:#6f7a80}
 .guest-texts.done{flex-direction:row;align-items:flex-start;color:#23764a}.guest-texts.done span{display:flex;flex-direction:column;gap:2px}.guest-texts.done strong{color:#1d2127}
 .guest-texts-note{font-size:12px;color:#6f7a80;margin-top:16px}
+/* Walk / drive time to the next stop, under each stop card */
+.tl-leg{grid-column:2;display:inline-flex;align-items:center;gap:6px;justify-self:start;margin-top:-2px;padding:4px 10px;border-radius:999px;font-size:13px;color:#2f5f7c;background:rgba(62,119,152,.10);text-decoration:none}
+a.tl-leg:hover,a.tl-leg:focus-visible{background:rgba(62,119,152,.18)}

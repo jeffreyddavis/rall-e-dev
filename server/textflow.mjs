@@ -7,6 +7,7 @@ import { EVENTS, MAX_STOPS, eventById, categoryFrom } from './catalog.mjs';
 import { Agent } from './agent.mjs';
 import { scrubCards } from './vault.mjs';
 import { stats } from './stats.mjs';
+import { legText } from './discovery.mjs';
 
 const VIBES = [['1', 'dinner', 'Dinner'], ['2', 'live shows', 'Live shows'], ['3', 'museums', 'Museums & art'], ['4', 'nature', 'Outdoors']];
 const YES = /^(y|yes|yep|yeah|yup|sure|ok|okay|i'?m in|im in|in|count me in|let'?s do it|let'?s go|sounds good|love it|absolutely|definitely)[.!]*$/i;
@@ -493,7 +494,10 @@ export class TextFlow {
   // ---------- copy ----------
   vibePrompt() { return `What are you in the mood for this weekend?\n${VIBES.map(([n, , label]) => `${n} ${label}`).join('\n')}\nReply a number, or describe it (“something outdoors”, “comedy”).`; }
   pitch(e) { return `How about ${e.short}? ${e.venue}, ${e.area} · ${e.time} · ${priceOf(e)}. ${e.tag} (sample outing)\nReply YES to make it the plan, NO for something else, or ask me about time, price or access.`; }
-  itinerary(s) { return s.plan.stops.map(id => eventById(id)).map(e => `${e.time.replace('Saturday · ', 'Sat ')} ${e.short}${e.short.includes(e.venue) ? '' : ` (${e.venue})`}`).join(' → '); }
+  itinerary(s) {
+    const legs = this.sms.discovery?.cachedLegs ? this.sms.discovery.cachedLegs(s.plan.stops) : [];
+    return s.plan.stops.map(id => eventById(id)).map((e, i) => `${i ? ` → ${legs[i - 1] ? `(${legText(legs[i - 1])}) → ` : ''}` : ''}${e.time.replace('Saturday · ', 'Sat ')} ${e.short}${e.short.includes(e.venue) ? '' : ` (${e.venue})`}`).join('');
+  }
   counts(p) {
     const n = r => p.participants.filter(x => x.response === r).length;
     return [`${n('yes')} going`, n('maybe') && `${n('maybe')} maybe`, n('pending') && `${n('pending')} waiting`].filter(Boolean).join(', ');

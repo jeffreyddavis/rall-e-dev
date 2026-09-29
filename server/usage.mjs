@@ -8,10 +8,11 @@ import { freemem, totalmem, uptime } from 'node:os';
 const today = () => new Date().toISOString().slice(0, 10);
 const month = () => new Date().toISOString().slice(0, 7);
 const level = (used, limit) => !limit ? 'ok' : used / limit >= 0.9 ? 'critical' : used / limit >= 0.75 ? 'warn' : 'ok';
-const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'demo.tmsimg.com': 'gracenote' };
+const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'routes.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'demo.tmsimg.com': 'gracenote' };
 const skuOf = url => {
   const u = new URL(url);
   if (u.host === 'maps.googleapis.com') return u.pathname.includes('geocode') ? 'geocoding' : 'maps';
+  if (u.host === 'routes.googleapis.com') return 'routes';
   if (u.host === 'places.googleapis.com') return u.pathname.includes('/media') ? 'place_photos' : 'text_search';
   return 'calls';
 };
@@ -112,7 +113,7 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
   }
   // Google Maps Platform (places, photos, geocoding). No usage API on a plain key: our own counts vs free monthly caps.
   if (sms.discovery.keys.google) {
-    const caps = { text_search: Number(env.GOOGLE_FREE_TEXT_SEARCH) || 1000, place_photos: Number(env.GOOGLE_FREE_PLACE_PHOTOS) || 1000, geocoding: Number(env.GOOGLE_FREE_GEOCODING) || 10000 };
+    const caps = { text_search: Number(env.GOOGLE_FREE_TEXT_SEARCH) || 1000, place_photos: Number(env.GOOGLE_FREE_PLACE_PHOTOS) || 1000, geocoding: Number(env.GOOGLE_FREE_GEOCODING) || 10000, routes: Number(env.GOOGLE_FREE_ROUTES) || 10000 };
     const rows = Object.entries(caps).map(([sku, cap]) => ({ sku, used: meter.calls('google', sku, start), cap }));
     const worst = rows.reduce((a, b) => b.used / b.cap > a.used / a.cap ? b : a);
     cards.push({ id: 'google', name: 'Google Maps Platform (places & photos)', status: level(worst.used, worst.cap), meter: { used: worst.used, limit: worst.cap, unit: `${worst.sku.replace('_', ' ')} this month (free tier)` },

@@ -4,6 +4,7 @@ import { createHash, randomInt, randomBytes, timingSafeEqual } from 'node:crypto
 import { fail, clean } from './store.mjs';
 import { normalize } from './sms.mjs';
 import { stats } from './stats.mjs';
+import { ipGuess, areaCodeState } from './geoguess.mjs';
 
 const hash = value => createHash('sha256').update(String(value)).digest('hex');
 const same = (a, b) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -11,7 +12,8 @@ const TEN_MIN = 600000;
 export const CONSENT = 'I agree to get texts from Rall-e about plans I make or join. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help.';
 
 export class Signup {
-  constructor(store, sms) {
+  constructor(store, sms, { guess = ip => ipGuess(ip) } = {}) {
+    this.guess = guess; // swappable in tests (no network)
     this.store = store; this.sms = sms; this.db = store.db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS signup_codes (phone TEXT PRIMARY KEY, code TEXT NOT NULL, expires INTEGER NOT NULL,
       attempts INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL, requested TEXT NOT NULL DEFAULT '[]', token TEXT, token_expires INTEGER);`);
@@ -55,8 +57,22 @@ export class Signup {
     this.db.prepare('UPDATE signup_codes SET token=?, token_expires=? WHERE phone=?').run(hash(token), Date.now() + 3 * TEN_MIN, phone);
     return { existing: false, verification: token };
   }
+  // The first text (Marc's "magic" moment): open with a guess at where they are and ask if it's right.
+  async welcome(phone, name, ip) {
+    const flow = this.sms.flow, d = this.sms.discovery;
+    let where = '';
+    if (d?.enabled) {
+      const known = d.location(phone), guess = known ? null : await this.guess(ip);
+      if (guess) d.saveLocation(phone, guess);
+      const state = !known && !guess ? areaCodeState(phone) : null;
+      where = known ? '' : guess ? ` Looks like you’re around ${guess.label}, and I’ve already got ideas for things to do there. Did I get that right?`
+        : state ? ` Is ${state} home base, or are you somewhere else?` : ' Where are you based? A neighborhood, city or ZIP works.';
+    }
+    flow.reply(phone, `Welcome to Rall-e, ${name}! This is my number, so text me anytime to plan something with friends.${where} (Rall-e demo. Reply STOP to opt out.)`, 'welcome');
+    flow.sendCard(phone);
+  }
   // Creates the account for a phone verified by verify(). Returns { id, state } like Store.create().
-  create(token, name) {
+  create(token, name, ip = '') {
     const row = this.db.prepare('SELECT * FROM signup_codes WHERE token=?').get(hash(clean(token, 100)));
     if (!row || row.token_expires < Date.now()) fail(410, 'Your verification expired. Start again with your phone number.');
     const created = this.store.create(name ? clean(name, 40) : undefined), { id, state } = created;
@@ -64,8 +80,7 @@ export class Signup {
     if (!row.sent) return created; // preview-mode verification: not linked for texting
     const flow = this.sms.flow, digest = this.store.digestOf(id);
     flow.link(row.phone, digest, state, 'host'); stats.bump('signups_web', 1, row.phone);
-    flow.reply(row.phone, `Welcome to Rall-e, ${state.name}! This is my number — text me anytime to plan something with friends. (Rall-e demo. Reply STOP to opt out.)`, 'welcome');
-    flow.sendCard(row.phone);
+    this.welcome(row.phone, state.name, ip).catch(error => { console.error('Welcome text:', error.message); flow.reply(row.phone, `Welcome to Rall-e, ${state.name}! This is my number — text me anytime to plan something with friends. (Rall-e demo. Reply STOP to opt out.)`, 'welcome'); flow.sendCard(row.phone); });
     return created;
   }
 }

@@ -133,3 +133,21 @@ test('a second search keeps the first search’s options available (newest first
   assert.deepEqual(d.recent(ME).map(e => e.id), ['tm_c', 'tm_a', 'tm_b']);
   store.close();
 });
+
+test('travel time between stops: real Routes times when allowed, an "about" estimate when not', async () => {
+  const { legText } = await import('../server/discovery.mjs');
+  const { registerEvent } = await import('../server/catalog.mjs');
+  const a = { id: 'gp_legA', short: 'A', venue: 'A', time: 'x', lat: 34.0980, lng: -118.3620 }, b = { id: 'gp_legB', short: 'B', venue: 'B', time: 'x', lat: 34.1016, lng: -118.3409 }; // ~2 km apart
+  registerEvent(a); registerEvent(b);
+  const blocked = setup({}, {});
+  blocked.d.fetch = async () => ({ ok: false, status: 403, headers: new Map(), json: async () => ({ error: { message: 'blocked' } }) });
+  const est = await blocked.d.leg(a, b);
+  assert.equal(est.estimate, true); assert.equal(est.mode, 'drive'); assert.match(legText(est), /^about \d+ min drive · 1\.\d mi$/);
+  blocked.store.close();
+  const real = setup();
+  real.d.fetch = async (url, init) => ({ ok: true, status: 200, headers: new Map(), json: async () => ({ routes: [JSON.parse(init.body).travelMode === 'WALK' ? { duration: '1500s', distanceMeters: 2100 } : { duration: '420s', distanceMeters: 2600 }] }) });
+  const leg = await real.d.leg(a, b);
+  assert.deepEqual([leg.mode, leg.minutes, leg.estimate], ['drive', 7, false]); assert.equal(legText(leg), '7 min drive · 1.6 mi');
+  assert.deepEqual(real.d.cachedLegs(['gp_legA', 'gp_legB']), [leg]);
+  real.store.close();
+});

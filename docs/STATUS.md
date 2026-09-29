@@ -1,6 +1,6 @@
 # Rall-e status
 
-_Last updated: 2026-09-29. Update this file with every round of work (see AGENTS.md)._
+_Last updated: 2026-09-29 (evening). Update this file with every round of work (see AGENTS.md)._
 
 ## Live state
 - **Site:** https://rall-e.ai. It's the texting prototype in LIVE mode for testers and people who opted in. Web signup and share pages are public.
@@ -18,9 +18,16 @@ _Last updated: 2026-09-29. Update this file with every round of work (see AGENTS
   - Ticketmaster (free tier: only about a third of events carry prices), Google Places + photos, SerpApi showtimes (free, 250/month).
   - Pending: Gracenote (key in about a week), SeatGeek (approval).
 - **Vault:** on. Stripe is in **test** mode; the Stripe account's public name still shows "MacroFit", so rename it in the Stripe dashboard.
-- **Tests:** 65 pass.
+- **Location guess at signup:**
+  - Web signups get a welcome text that guesses their city from their internet connection (ipinfo.io, free tier; optional `IPINFO_TOKEN`) and asks "Did I get that right?".
+  - Text-first signups get asked about their area code's state.
+  - The agent treats a guess as unconfirmed until they say yes.
+- **Travel between stops:** plan pages show walk or drive time under each stop, with a directions link. It's also in the agent's view and in itinerary texts.
+  - **Real times need the Google Routes API** enabled on our Maps key. Until then, times are straight-line estimates labeled "about".
+- **Tests:** 68 pass.
 
 ## Open items / next
+- **Enable the Google Routes API** (Cloud Console → APIs → Routes API → Enable), and allow it in the Maps key's API restrictions. Travel times then switch from estimates to real ones automatically, within a day.
 - **Invite texting (see the project doc `claude/invite-texting-research.md`):**
   - Build a "text the invite from your phone" button: a prefilled `sms:` link or share sheet, sent person-to-person, so no consent issue.
   - Start registering a Standard/Low-Volume Standard 10DLC brand. It needs an EIN; use a new Messaging Service so the current line keeps working.
@@ -33,6 +40,10 @@ _Last updated: 2026-09-29. Update this file with every round of work (see AGENTS
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-29, "Marc's magic location + travel times":**
+  - The welcome text guesses where a new user is and asks to confirm.
+  - Walk/drive time between stops on plan pages, in texts and for the agent (Routes API when enabled, estimates until then).
+  - Places and Ticketmaster finds now keep coordinates.
 - **09-29, "one thread per person" and "missed texts":**
   - Android users who text the Sendblue line are answered there, not from the Twilio number. Before, they ended up with two threads.
   - A per-minute catch-up recovers inbound texts whose webhook never arrived.

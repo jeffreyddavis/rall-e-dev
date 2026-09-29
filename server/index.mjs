@@ -13,6 +13,7 @@ import { wipeTexts, removePerson } from './wipe.mjs';
 import { stats } from './stats.mjs';
 import { OgImages } from './og.mjs';
 import { eventById } from './catalog.mjs';
+import { legText } from './discovery.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const store = new Store(process.env.DB_PATH || resolve(root, 'data/rally.sqlite'));
@@ -62,7 +63,8 @@ const server = http.createServer(async (req, res) => {
       const setSession = id => res.setHeader('Set-Cookie', `rally_session=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${production ? '; Secure' : ''}`);
       if (url.pathname === '/api/session' && req.method === 'POST') {
         const input = await body(req);
-        const { id, state } = input.verification ? signup.create(input.verification, input.name) : store.create(input.name);
+        const ip = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
+        const { id, state } = input.verification ? signup.create(input.verification, input.name, ip) : store.create(input.name);
         setSession(id); return json(res, 200, store.view(state));
       }
       if (url.pathname === '/api/signup/code' && req.method === 'POST') {
@@ -79,6 +81,16 @@ const server = http.createServer(async (req, res) => {
       }
       const eventMatch = /^\/api\/event\/([\w-]{1,40})$/.exec(url.pathname);
       if (eventMatch && req.method === 'GET') { const e = eventById(eventMatch[1]); if (!e) fail(404, 'That listing is no longer available.'); return json(res, 200, { event: publicEvent(e), textNumbers: textNumbers() }); }
+      if (url.pathname === '/api/travel' && req.method === 'GET') {
+        const ids = String(url.searchParams.get('ids') || '').split(',').filter(id => /^[\w-]{1,40}$/.test(id) && eventById(id)).slice(0, 8);
+        const d = sms.discovery, legs = ids.length > 1 ? await Promise.race([d.legs(ids), new Promise(r => setTimeout(() => r(d.cachedLegs(ids)), 6000))]) : [];
+        return json(res, 200, { legs: legs.map((l, i) => {
+          if (!l) return null;
+          const a = d.coords(eventById(ids[i])), b = d.coords(eventById(ids[i + 1]));
+          const maps = a && b ? `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lng}&destination=${b.lat},${b.lng}&travelmode=${l.mode === 'drive' ? 'driving' : 'walking'}` : null;
+          return { mode: l.mode, text: legText(l), maps };
+        }) });
+      }
       if (url.pathname === '/api/stats/share' && req.method === 'POST') { const kind = String((await body(req)).kind || ''); if (['night', 'ideas', 'spot'].includes(kind)) stats.bump(`share_taps_${kind}`); res.writeHead(204); return res.end(); }
       const joinMatch = /^\/api\/share\/([\w-]{12})\/join$/.exec(url.pathname);
       if (joinMatch && req.method === 'POST') {
