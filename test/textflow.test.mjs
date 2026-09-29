@@ -67,12 +67,14 @@ test('a host plans entirely by text and the group collaborates by text (preview 
 
 test('live mode texts only approved testers, queues through the messaging service and tracks status', async () => {
   const t = setup({ SMS_MODE: 'live', SMS_ALLOWED_RECIPIENTS: `${HOST},${MIKE}` });
-  t.text('+13105550199', 'hello'); assert.equal(t.out('+13105550199').length, 0); // not a tester: cannot start a plan
+  // Not a member: cannot start a plan; gets one invite-only answer (they texted us), then nothing.
+  t.text('+13105550199', 'hello'); t.text('+13105550199', 'hello?');
+  assert.equal(t.out('+13105550199').length, 1); assert.match(t.last('+13105550199'), /invite-only.*waitlist/);
   planByText(t);
   assert.match(t.last(HOST), /Invited Mike by text/); assert.match(t.last(HOST), /Dave hasn’t turned on Rall-e texts yet.*\nDave: https/s);
   assert.equal(t.out(DAVE)[0].status, 'blocked'); assert.equal(t.out(DAVE)[0].error, 'not-a-tester');
   await t.sms.idle();
-  assert.ok(t.sent.length >= 6); assert.ok(t.sent.every(p => p.messagingServiceSid && !p.from && [HOST, MIKE].includes(p.to)));
+  assert.ok(t.sent.length >= 6); assert.ok(t.sent.every(p => p.messagingServiceSid && !p.from && [HOST, MIKE, '+13105550199'].includes(p.to)));
   assert.match(t.sent[0].statusCallback, /\/api\/twilio\/status\?log=/);
   const row = t.store.db.prepare("SELECT id, sid FROM sms_log WHERE phone=? AND direction='out' ORDER BY rowid").get(MIKE);
   t.sms.logCallback(row.id, { MessageSid: row.sid, MessageStatus: 'delivered' }); t.sms.logCallback(row.id, { MessageSid: row.sid, MessageStatus: 'sent' });

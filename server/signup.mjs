@@ -35,7 +35,7 @@ export class Signup {
     if (joining) { if (input.consent !== true) fail(400, 'Tick the box to agree to texts from Rall-e.'); this.sms.canOptIn(); }
     const code = String(randomInt(0, 1000000)).padStart(6, '0');
     const status = this.sms.deliver(phone, `Your Rall-e code is ${code}. It expires in 10 minutes. Don't share it with anyone.`, { kind: 'otp', optInCode: joining });
-    if (status === 'blocked') fail(403, 'This demo can only text approved testers right now. Use “Skip for now” to look around.');
+    if (status === 'blocked') fail(403, 'Rall-e is invite-only right now. Open the invite link a friend sent you, or join the waitlist.');
     this.db.prepare('INSERT OR REPLACE INTO signup_codes(phone,code,expires,attempts,sent,requested,join_src) VALUES(?,?,?,0,?,?,?)')
       .run(phone, hash(code), Date.now() + TEN_MIN, status === 'preview' ? 0 : 1, JSON.stringify([...recent, Date.now()]), joining ? String(input.join).slice(0, 60) : null);
     // Preview mode sends nothing, so the page shows the code instead. A preview-verified phone is never linked for texting.

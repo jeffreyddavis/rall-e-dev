@@ -3,8 +3,10 @@ import React, { useEffect, useState } from 'react';
 // Insights tab of the dashboard: anonymous, long-term product numbers (they survive conversation wipes) and, for the
 // operator only, "gaps": what people asked for that Rall-e couldn't do, with one anonymized example each.
 const GROUPS = [
+  ['Invites & waitlist', [['invite_joins', 'Joined with an invite'], ['invite_links_created', 'Invite links created'], ['invite_link_views', 'Invite links opened'], ['me_page_views', 'Invites pages opened'],
+    ['waitlist_joins', 'Joined the waitlist'], ['waitlist_texts', 'Non-members who texted Rall-e']]],
   ['Growth & sharing', [['signups_by_text', 'Signed up by texting'], ['signups_web', 'Signed up on the web'], ['signups_from_share', 'Signed up from a shared link'], ['joined_from_share', 'Joined a night from a shared link'],
-    ['invites_sent', 'Friends invited'], ['shared_night_views', 'Shared plans viewed'], ['shared_list_views', 'Shared idea lists viewed'], ['share_taps_night', 'Share taps: plans'], ['share_taps_ideas', 'Share taps: idea lists'], ['share_taps_spot', 'Share taps: single spots']]],
+    ['invites_sent', 'Friends invited to plans'], ['shared_night_views', 'Shared plans viewed'], ['shared_list_views', 'Shared idea lists viewed'], ['share_taps_night', 'Share taps: plans'], ['share_taps_ideas', 'Share taps: idea lists'], ['share_taps_spot', 'Share taps: single spots']]],
   ['Plans & engagement', [['plans_created', 'Plans created'], ['plans_confirmed', 'Plans confirmed'], ['stops_added', 'Stops added'], ['option_sets_sent', 'Sets of ideas sent'], ['options_shown', 'Ideas shown'], ['my_picks', 'My pick taps'],
     ['rsvp_yes', 'RSVPs: yes'], ['rsvp_maybe', 'RSVPs: maybe'], ['rsvp_no', 'RSVPs: no'], ['ideas_suggested', 'Ideas suggested by friends'], ['votes', 'Votes'], ['group_messages', 'Group messages']]],
   ['Trust', [['vault_saves_web', 'Vault saves (secure page)'], ['vault_saves_text', 'Details saved by text'], ['locations_shared', 'Locations shared']]],

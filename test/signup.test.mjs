@@ -44,7 +44,7 @@ test('phone-first signup texts a code, links the phone, and signs a returning me
 
 test('non-testers cannot receive codes in live mode; preview shows the code and never links the phone', async () => {
   const live = setup();
-  assert.throws(() => live.signup.sendCode({ phone: '+14155550123' }), /approved testers/);
+  assert.throws(() => live.signup.sendCode({ phone: '+14155550123' }), /invite-only right now/);
   assert.throws(() => live.signup.sendCode({ phone: '12' }), /US mobile/);
   await live.sms.idle(); live.store.close();
   const preview = setup({ SMS_MODE: 'preview' });
@@ -66,7 +66,7 @@ test('five wrong codes lock the code', async () => {
 test('someone new can opt in from a shared page: consent box + texted code, then Rall-e can text them', async () => {
   const t = setup(), TORI = '+14155550123';
   const code = () => /code is (\d{6})/.exec(t.store.db.prepare("SELECT body FROM sms_log WHERE phone=? AND kind='otp' ORDER BY rowid DESC").get(TORI).body)[1];
-  assert.throws(() => t.signup.sendCode({ phone: TORI }), /approved testers/); // no join, no texts
+  assert.throws(() => t.signup.sendCode({ phone: TORI }), /invite-only right now/); // no join, no texts
   assert.throws(() => t.signup.sendCode({ phone: TORI, join: 'share-token' }), /Tick the box/);
   assert.deepEqual(t.signup.sendCode({ phone: TORI, join: 'share-token', consent: true }), { sent: true });
   assert.equal(t.sms.allowed.has(TORI), false); // not until they prove the number

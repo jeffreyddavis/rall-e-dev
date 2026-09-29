@@ -24,9 +24,16 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - The agent treats a guess as unconfirmed until they say yes.
 - **Travel between stops:** plan pages show walk or drive time under each stop, with a directions link. It's also in the agent's view and in itinerary texts.
   - Real times come from the Google Routes API (enabled 09-29). If Routes fails, times fall back to straight-line estimates labeled "about".
-- **Tests:** 68 pass.
+- **Invite-only (09-29):**
+  - The home page is the waitlist, plus invite links at `/i/<code>`: double opt-in, then an account, then a welcome text.
+  - Members get 10 invites and a private `/me/` page (invites + profile photo). The agent can send it (`get_invite_link` / `get_my_page`).
+  - `/ops` shows invites used per person, and Insights has an "Invites & waitlist" group.
+- **Profile photos:** text a photo ("use this as my profile photo"), or upload one on `/me/`. Shown on plan pages.
+- **Tests:** 71 pass.
 
 ## Open items / next
+- **Donovan's invite/profile designs** will replace the interim `/me/` page styling. The waitlist needs an ops view and an "invite from the waitlist" action. Invite quota overrides per person are possible (`invite_quota` table), but there's no UI yet.
+- The opt-in caps were raised for invites (defaults: 60/day, 1,000 total; `SMS_OPTIN_DAILY_LIMIT` / `SMS_OPTIN_MAX`).
 - **Invite texting (see the project doc `claude/invite-texting-research.md`):**
   - Build a "text the invite from your phone" button: a prefilled `sms:` link or share sheet, sent person-to-person, so no consent issue.
   - Start registering a Standard/Low-Volume Standard 10DLC brand. It needs an EIN; use a new Messaging Service so the current line keeps working.
@@ -39,6 +46,12 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-29, "invite-only + profile photos" (Mike/Jeff):**
+  - Waitlist home page, and invite links with 10 invites each.
+  - Private `/me/` page, and the agent can send invite links.
+  - Inviters are texted on joins; stats and ops columns.
+  - Guest pages lost the simulated "Texts" tab.
+  - Profile photos by text or page.
 - **09-29, "Marc's magic location + travel times":**
   - The welcome text guesses where a new user is and asks to confirm.
   - Walk/drive time between stops on plan pages, in texts and for the agent (Routes API when enabled, estimates until then).

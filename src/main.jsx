@@ -18,6 +18,7 @@ import SharePage from './SharePage.jsx';
 import OpsPage from './OpsPage.jsx';
 import { Wordmark, RallyIcon, DesignPhoto, Onboarding } from './Design.jsx';
 import GuestPage from './GuestPage.jsx';
+import MePage from './MePage.jsx';
 import './figma.css';
 
 const guestToken = /^\/p\/([\w-]+)/.exec(location.pathname)?.[1];
@@ -138,4 +139,6 @@ function App() {
     </section></div>}
   </div>;
 }
-createRoot(document.getElementById('root')).render(location.pathname.startsWith('/ops') ? <OpsPage/> : location.pathname.startsWith('/lab') ? <SmsLab/> : location.pathname.startsWith('/v/') ? <VaultPage token={location.pathname.split('/')[2] || ''}/> : location.pathname.startsWith('/l/') ? <LocationPage token={location.pathname.split('/')[2] || ''}/> : location.pathname.startsWith('/s/') ? <SharePage token={location.pathname.split('/')[2] || ''} renderArt={kind => <Illustration kind={kind}/>}/> : location.pathname.startsWith('/n/') ? <NightPage token={location.pathname.split('/')[2] || ''} renderArt={kind => <Illustration kind={kind}/>}/> : location.pathname.startsWith('/e/') ? <EventPage id={location.pathname.split('/')[2] || ''} renderArt={kind => <Illustration kind={kind}/>}/> : <App/>);
+const inviteCode = /^\/i\/([a-z0-9-]{8,64})$/.exec(location.pathname)?.[1] || '';
+// Invite-only: the home page is the waitlist / invite front door (no web chat); plans and pages still open from their links.
+createRoot(document.getElementById('root')).render(location.pathname.startsWith('/me/') ? <MePage token={location.pathname.split('/')[2] || ''}/> : !guestToken && !/^\/(ops|lab|v|l|s|n|e)(\/|$)/.test(location.pathname) ? <Onboarding invite={inviteCode} api={api}/> : location.pathname.startsWith('/ops') ? <OpsPage/> : location.pathname.startsWith('/lab') ? <SmsLab/> : location.pathname.startsWith('/v/') ? <VaultPage token={location.pathname.split('/')[2] || ''}/> : location.pathname.startsWith('/l/') ? <LocationPage token={location.pathname.split('/')[2] || ''}/> : location.pathname.startsWith('/s/') ? <SharePage token={location.pathname.split('/')[2] || ''} renderArt={kind => <Illustration kind={kind}/>}/> : location.pathname.startsWith('/n/') ? <NightPage token={location.pathname.split('/')[2] || ''} renderArt={kind => <Illustration kind={kind}/>}/> : location.pathname.startsWith('/e/') ? <EventPage id={location.pathname.split('/')[2] || ''} renderArt={kind => <Illustration kind={kind}/>}/> : <App/>);

@@ -81,6 +81,37 @@ const server = http.createServer(async (req, res) => {
       }
       const eventMatch = /^\/api\/event\/([\w-]{1,40})$/.exec(url.pathname);
       if (eventMatch && req.method === 'GET') { const e = eventById(eventMatch[1]); if (!e) fail(404, 'That listing is no longer available.'); return json(res, 200, { event: publicEvent(e), textNumbers: textNumbers() }); }
+      // ---------- invite-only: invite links, the private "me" page, the waitlist ----------
+      const clientIp = () => String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
+      const inv = /^\/api\/invite\/([a-z0-9-]{8,64})(\/code|\/verify)?$/.exec(url.pathname);
+      if (inv && req.method === 'GET' && !inv[2]) { const l = sms.invites.lookup(inv[1]); stats.bump('invite_link_views'); return json(res, 200, { inviter: l.inviter, open: l.remaining > 0 }); }
+      if (inv && req.method === 'POST' && inv[2] === '/code') {
+        sms.invites.check(inv[1]); const input = await body(req);
+        return json(res, 200, signup.sendCode({ phone: input.phone, join: `invite:${inv[1]}`, consent: input.consent === true }, clientIp()));
+      }
+      if (inv && req.method === 'POST' && inv[2] === '/verify') {
+        const input = await body(req), phone = normalizePhone(input.phone || ''), name = clean(input.name || '', 40);
+        if (!name) fail(400, 'Please enter your first name.');
+        sms.invites.check(inv[1]);
+        const v = signup.verify({ phone, code: input.code });
+        if (v.existing) return json(res, 200, { existing: true, name: v.name, textNumbers: textNumbers() });
+        signup.create(v.verification, name, clientIp());
+        sms.invites.recordJoin(inv[1], phone, name);
+        return json(res, 200, { joined: true, name: clean(name, 40), textNumbers: textNumbers() });
+      }
+      if (url.pathname === '/api/waitlist' && req.method === 'POST') {
+        const input = await body(req); return json(res, 200, sms.invites.joinWaitlist(normalizePhone(input.phone || ''), input.name, 'web'));
+      }
+      const me = /^\/api\/me\/([\w-]{20,40})(\/links)?$/.exec(url.pathname);
+      if (me && req.method === 'GET' && !me[2]) { const phone = sms.invites.phoneFor(me[1]); stats.bump('me_page_views', 1, phone); return json(res, 200, { ...sms.invites.view(phone), textNumbers: textNumbers() }); }
+      const mePhoto = /^\/api\/me\/([\w-]{20,40})\/photo$/.exec(url.pathname);
+      if (mePhoto && req.method === 'POST') {
+        const phone = sms.invites.phoneFor(mePhoto[1]), chunks = []; let size = 0;
+        for await (const c of req) { size += c.length; if (size > 4 * 1024 * 1024) fail(413, 'That photo is too big.'); chunks.push(c); }
+        await sms.photos.save(phone, Buffer.concat(chunks), 'page'); return json(res, 200, sms.invites.view(phone));
+      }
+      if (mePhoto && req.method === 'DELETE') { const phone = sms.invites.phoneFor(mePhoto[1]); sms.photos.remove(phone); return json(res, 200, sms.invites.view(phone)); }
+      if (me && req.method === 'POST' && me[2]) { const phone = sms.invites.phoneFor(me[1]); sms.invites.create(phone, (await body(req)).name || ''); return json(res, 200, sms.invites.view(phone)); }
       if (url.pathname === '/api/travel' && req.method === 'GET') {
         const ids = String(url.searchParams.get('ids') || '').split(',').filter(id => /^[\w-]{1,40}$/.test(id) && eventById(id)).slice(0, 8);
         const d = sms.discovery, legs = ids.length > 1 ? await Promise.race([d.legs(ids), new Promise(r => setTimeout(() => r(d.cachedLegs(ids)), 6000))]) : [];
@@ -254,17 +285,23 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': jpg.length, 'cache-control': 'public, max-age=86400' }); return res.end(jpg);
     }
     // Event and invite pages carry preview tags so a texted link shows the frosted-glass card.
-    const pageMatch = production && (/^\/e\/([\w-]{1,40})$/.exec(url.pathname) || /^\/p\/([\w-]+)$/.exec(url.pathname) || /^\/n\/([\w-]{20,40})$/.exec(url.pathname) || /^\/s\/([\w-]{12})$/.exec(url.pathname));
+    const pageMatch = production && (/^\/e\/([\w-]{1,40})$/.exec(url.pathname) || /^\/p\/([\w-]+)$/.exec(url.pathname) || /^\/n\/([\w-]{20,40})$/.exec(url.pathname) || /^\/s\/([\w-]{12})$/.exec(url.pathname) || /^\/i\/([a-z0-9-]{8,64})$/.exec(url.pathname));
     if (pageMatch && req.method === 'GET') {
       let tags = '';
       try {
         if (url.pathname.startsWith('/e/')) { const e = eventById(pageMatch[1]); if (e) tags = previewTags({ title: e.short, description: [e.time, e.venue, e.area].filter(Boolean).join(' · '), image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}/e/${e.id}` }); }
+        else if (url.pathname.startsWith('/i/')) { const l = sms.invites.lookup(pageMatch[1]); tags = previewTags({ title: `${l.inviter} invited you to Rall-e`, description: 'Rall-e plans your social life so you can focus on the fun stuff. Invite-only for now.', image: `${publicBase}/rall-e-icon.png`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/s/')) { const s = store.shared(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name}'s plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'}, planned with Rall-e`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/n/')) { const { s } = store.night(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `Your plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'} · ${s.plan.participants.filter(p => p.response === 'yes').length + 1} going`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
         else { const { s } = store.guest(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name} invited you: ${s.plan.title}`, description: [e.time, e.venue].filter(Boolean).join(' · '), image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
       } catch {}
       const html = (await readFile(resolve(root, 'dist', 'index.html'), 'utf8')).replace(/<title>[^<]*<\/title>/, tags ? '' : '$&').replace('</head>', `${tags}</head>`);
       res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-cache' }); return res.end(html);
+    }
+    const userPhoto = /^\/img\/u\/([\w-]{12})\.jpg$/.exec(url.pathname);
+    if (userPhoto && req.method === 'GET') {
+      const data = sms.photos.image(userPhoto[1]); if (!data) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=31536000, immutable' }); return res.end(data);
     }
     if (url.pathname === '/imessage') {
       // One tap from a text or web page opens Messages to the Rall-e iMessage line with "Hi Rall-e" filled in.

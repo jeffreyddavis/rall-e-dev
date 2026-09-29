@@ -1,0 +1,34 @@
+.me{display:flex;flex-direction:column;gap:16px;width:100%;max-width:520px;margin:0 auto}
+.me-card{background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-radius:24px;padding:22px 20px;box-shadow:0 10px 30px #1d4f7a14;display:flex;flex-direction:column;gap:10px}
+.me-card h1{font-family:'DM Serif Display',serif;font-weight:400;font-size:34px;margin:0;color:#1f3b4d}
+.me-card h2{font-size:13px;letter-spacing:1.2px;text-transform:uppercase;color:#3e7798;margin:0}
+.me-card p{margin:0;color:#3f4b52;line-height:1.5}
+.me-eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:#2f89c2 !important}
+.me-muted{color:#6b7a82 !important;font-size:14px}
+.me-meter{height:8px;border-radius:99px;background:rgba(62,119,152,.15);overflow:hidden}.me-meter i{display:block;height:100%;background:#2f89c2;border-radius:99px}
+.me-links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.me-links li{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:rgba(62,119,152,.07)}
+.me-links li>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.me-links input{width:100%;min-width:0;border:0;background:transparent;font:inherit;font-size:14px;color:#2f5f7c;padding:0;text-overflow:ellipsis}
+.me-links small{color:#6b7a82;font-size:12px}
+.me-links .button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:10px 14px}
+.me-new{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.me-new label{font-size:14px;font-weight:600;color:#3f4b52}
+.me-new input{border:1px solid rgba(62,119,152,.25);border-radius:12px;padding:12px;font:inherit;background:#fff}
+.me-new .button{display:inline-flex;align-items:center;justify-content:center;gap:6px;margin-top:6px}
+.me-joined{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.me-joined li{display:flex;align-items:center;gap:10px}.me-joined li small{margin-left:auto;color:#6b7a82}
+.me-joined .avatar{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#e3eff7;color:#2f89c2;font-weight:700}
+.invite-eyebrow{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:#2f89c2;margin:0 0 8px}
+.invite-done{align-items:center;text-align:center}.invite-done .success-check{margin:0 auto 8px}
+/* Invite + waitlist forms on the home page */
+.onboarding-form form{display:flex;flex-direction:column;gap:12px}
+.onboarding-form label.consent{display:flex;align-items:flex-start;gap:10px;text-align:left;font-size:13px;line-height:1.45;color:#6b7a82;margin:2px 4px}
+.onboarding-form label.consent input{flex:none;width:18px;height:18px;margin:2px 0 0;accent-color:#2f89c2}
+.me-profile{flex-direction:row;align-items:center;gap:18px}
+.me-photo{flex:none;width:88px;height:88px;border-radius:50%;overflow:hidden;background:#e3eff7;display:grid;place-items:center;box-shadow:0 4px 14px #1d4f7a26}
+.me-photo img{width:100%;height:100%;object-fit:cover}.me-photo span{font-family:'DM Serif Display',serif;font-size:40px;color:#2f89c2}
+.me-profile-text{display:flex;flex-direction:column;gap:6px;min-width:0}.me-profile-text h1{font-size:28px}
+.me-photo-actions{display:flex;gap:8px;margin-top:4px}.me-photo-actions .button{display:inline-flex;align-items:center;gap:6px;padding:10px 14px}
+h2.me-title{font-family:'DM Serif Display',serif;font-weight:400;font-size:30px;letter-spacing:0;text-transform:none;color:#1f3b4d}
+.avatar.has-photo{padding:0;overflow:hidden;background:#e3eff7}.avatar.has-photo img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}

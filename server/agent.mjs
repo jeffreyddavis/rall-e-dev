@@ -47,7 +47,9 @@ Showing what you can do (see "Features" in the situation):
 - Using a feature (sending cards or a link) counts automatically.
 - Whenever you tell them you can't do something they asked for, or something failed or came up empty, also call log_gap (anonymous, for the team). Then still help as much as you can.
 - Don't assume plans happen at night. Match their timing (a day trip, brunch, an afternoon with the kids, a weekend) and call it a plan, outing or day rather than "the night" unless it really is an evening.
-- You can only text people who have opted in to Rall-e (the test group and anyone who turned on texts from a Rall-e page). When a host wants to invite someone, never promise to text them: ask for their name (and number, so it's saved for later) and explain they'll get a personal link to forward. If that person has already opted in, invite texts them directly and the result tells you. Friends can turn on texts from their invite page in one step.`;
+- You can only text people who have opted in to Rall-e (the test group and anyone who turned on texts from a Rall-e page). When a host wants to invite someone, never promise to text them: ask for their name (and number, so it's saved for later) and explain they'll get a personal link to forward. If that person has already opted in, invite texts them directly and the result tells you. Friends can turn on texts from their invite page in one step.
+- Rall-e is invite-only. Each member has a few invites (get_invite_link gives their reusable link and their private invites page). When someone wants a friend to get Rall-e itself, send their invite link; don't send people to the website to sign up without one. Friends invited to a plan can still join that plan from their plan link.
+- Profile photos: members can have one (friends see it on plan pages). If they text a photo with no clear purpose, ask if they'd like it as their profile photo; if they say yes (or asked), call set_profile_photo. They can also change it on their page (get_my_page).`;
 
 const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
@@ -140,7 +142,15 @@ export class Agent {
         T('send_secure_link', 'Text them a private 15-minute link to their vault to add or change details (card, address, name, reservation accounts, etc.).', { purpose: { type: 'string', enum: ['details', 'card'] } }, ['purpose']),
         T('save_details', 'Save email, dietary needs or allergies they clearly stated in a text.', { email: { type: 'string' }, dietary: { type: 'string' }, allergies: { type: 'string' } })
       ] : [])];
-    if (role === 'new') return [...common.filter(x => x.name === 'react'), T('start_account', 'Create their Rall-e account once they tell you their first name.', { first_name: { type: 'string' } }, ['first_name'])];
+    const invite = this.flow.sms.invites?.member(ctx.phone) ? [T('get_invite_link', 'Their personal invite link to Rall-e (invite-only) and a link to their invites page, where they can make more links and see who joined. Use when they ask to invite someone to Rall-e itself, ask for their invite link, or ask how many invites they have. (To invite friends to a plan, hosts use invite instead.)')] : [];
+    common.push(...invite);
+    if (this.flow.sms.invites?.member(ctx.phone)) {
+      const recent = this.flow.sms.lastMedia?.get(ctx.phone), photo = recent && Date.now() - recent.at < 3600000;
+      common.push(T('get_my_page', 'Link to their private Rall-e page, where they can change their profile photo and manage their invites. Use when they ask to change or see their profile/photo or their page.'));
+      if (photo) common.push(T('set_profile_photo', 'Use the photo they just texted as their profile photo (friends see it on plan pages). Only when they ask for that or say yes when you offer.'));
+      if (this.flow.sms.photos?.urlFor(ctx.phone)) common.push(T('remove_profile_photo', 'Remove their profile photo, when they ask.'));
+    }
+    if (role === 'new') return [...common.filter(x => x.name === 'react' || x.name === 'get_invite_link'), T('start_account', 'Create their Rall-e account once they tell you their first name.', { first_name: { type: 'string' } }, ['first_name'])];
     if (role === 'guest') return [...common, ...find,
       T('rsvp', 'Record whether they are going.', { response: { type: 'string', enum: ['yes', 'maybe', 'no'] } }, ['response']),
       T('suggest', 'Suggest a different outing from the catalogue instead of the current plan (only if the plan is open to suggestions).', { event_id: eventId, reason: { type: 'string' } }, ['event_id']),
@@ -172,6 +182,16 @@ export class Agent {
     if (name === 'queue_feature') { this.features.queue(phone, input.feature, input.reason); return 'Saved. Finish what they are doing first; bring it up right after (it will show under "Queued" in the situation).'; }
     const shown = featureForTool(name, input); if (shown) this.features.mark(phone, shown, this.operatorFor?.get(phone) ? 'operator' : 'auto');
     try {
+      if (name === 'get_my_page') return `Their private page (profile photo and invites; works for 30 days): ${flow.sms.invites.pageLink(phone)}`;
+      if (name === 'set_profile_photo') {
+        await flow.sms.photos.fromText(phone, flow.sms.lastMedia.get(phone)); flow.sms.lastMedia.delete(phone);
+        return 'Saved as their profile photo. Friends will see it on plan pages. They can change it anytime by texting a new one or on their page (get_my_page).';
+      }
+      if (name === 'remove_profile_photo') { flow.sms.photos.remove(phone); return 'Profile photo removed.'; }
+      if (name === 'get_invite_link') {
+        const inv = flow.sms.invites, code = inv.defaultLink(phone), left = inv.quota(phone) - inv.used(phone);
+        return `Invite link (reusable, one per friend not needed): ${inv.url(code)}\nInvites: ${inv.used(phone)} of ${inv.quota(phone)} used (${Math.max(0, left)} left; an invite counts when someone joins).\nTheir invites page (make more links, see who joined; private, 30 days): ${inv.pageLink(phone)}\nSend the invite link, and mention the page in a few words.`;
+      }
       if (name === 'start_account') {
         flow.createHost(phone, String(input.first_name || '').trim());
         if (!this.discovery.enabled) return 'Account created. Their plans live in Hollywood, LA for this demo. Welcome them by name and ask if Hollywood works.';

@@ -1,3 +1,5 @@
+import { Invites } from './invites.mjs';
+import { Photos } from './photos.mjs';
 import twilio from 'twilio';
 import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { fail } from './store.mjs';
@@ -30,7 +32,7 @@ export class Sms {
     // People who opted in themselves from a shared page (double opt-in: consent box + texted code) can be texted too.
     this.db.exec('CREATE TABLE IF NOT EXISTS sms_optins (phone TEXT PRIMARY KEY, at INTEGER NOT NULL, source TEXT NOT NULL, consent TEXT NOT NULL)');
     for (const r of this.db.prepare('SELECT phone FROM sms_optins').all()) this.allowed.add(r.phone);
-    this.optinDaily = Math.max(0, Number(env.SMS_OPTIN_DAILY_LIMIT ?? 25)); this.optinMax = Math.max(0, Number(env.SMS_OPTIN_MAX ?? 100));
+    this.optinDaily = Math.max(0, Number(env.SMS_OPTIN_DAILY_LIMIT ?? 60)); this.optinMax = Math.max(0, Number(env.SMS_OPTIN_MAX ?? 1000));
     this.base = (env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
     this.from = normalize(env.TWILIO_FROM_NUMBER || '');
     this.service = /^MG[\da-f]{32}$/i.test(env.TWILIO_MESSAGING_SERVICE_SID || '') ? env.TWILIO_MESSAGING_SERVICE_SID : '';
@@ -67,6 +69,11 @@ export class Sms {
     meter.attach(this.db); stats.attach(this.db); stats.backfill(); store.listen(event => stats.planEvent(event));
     this.discovery = new Discovery(store, env, fetchImpl);
     this.flow = new TextFlow(store, this);
+    this.invites = new Invites(this, env);
+    this.photos = new Photos(this, env, fetchImpl);
+    this.lastMedia = new Map(); // phone -> the latest photo they texted { url, type, at }
+    // Plan pages show people's profile photos: find the phone behind a host (participant '') or a friend on a plan.
+    store.photoOf = (s, participant = '') => { const r = this.db.prepare("SELECT phone FROM sms_threads WHERE plan=? AND " + (participant ? 'participant=?' : "role='host'") + ' LIMIT 1').get(...(participant ? [s.id, participant] : [s.id])); return r ? this.photos.urlFor(r.phone) : null; };
   }
   authorize(value, source = 'local') {
     const key = this.env.SMS_OPERATOR_KEY || '', previous = this.failedAuth.get(source);
@@ -185,7 +192,9 @@ export class Sms {
     stats.bump('signups_from_share', 1, phone);
     this.allowed.add(phone);
   }
-  deliver(phone, body, { kind = 'reply', media = null, optInCode = false } = {}) {
+  deliver(phone, body, { kind = 'reply', media = null, optInCode = false, inboundReply = false } = {}) {
+    // A single reply to someone who just texted us (e.g. "Rall-e is invite-only") is allowed even if they aren't a member.
+    if (inboundReply) optInCode = Boolean(this.db.prepare("SELECT 1 FROM sms_log WHERE phone=? AND direction='in' AND created>?").get(phone, Date.now() - 3600000));
     body = body.length > 1200 ? body.slice(0, 1197) + '…' : body;
     const since = Date.now() - 86400000;
     let status = 'queued-local', error = null;
@@ -271,7 +280,7 @@ export class Sms {
       const threads = this.flow.threadsFor(phone), t = threads[0];
       const last = this.db.prepare("SELECT direction, body, created FROM sms_log WHERE phone=? AND status!='blocked' ORDER BY rowid DESC LIMIT 1").get(phone);
       const name = t ? (t.role === 'host' ? t.s.name : t.person?.name) : '';
-      return { phone, name: name || '', tester: this.testers.has(phone), optedIn: this.allowed.has(phone), channel: this.phoneService(phone)?.service || this.lastIn.get(phone)?.service || '', stopped: this.isStopped(phone),
+      return { phone, name: name || this.invites.nameOf(phone) || '', tester: this.testers.has(phone), optedIn: this.allowed.has(phone), invites: this.allowed.has(phone) ? this.invites.summary(phone) : null, channel: this.phoneService(phone)?.service || this.lastIn.get(phone)?.service || '', stopped: this.isStopped(phone),
         plans: threads.slice(0, 3).map(x => ({ role: x.role, title: x.s.plan.title, host: x.s.name, status: x.s.plan.status })),
         location: this.discovery.location(phone)?.label || '', last: last ? { from: last.direction === 'in' ? 'them' : 'rall-e', text: last.body.slice(0, 120), at: last.created } : null,
         busy: this.flow.chains.has(phone) };
@@ -336,10 +345,10 @@ export class Sms {
     this.lastIn.set(from, { handle, service: m.service || '' });
     if (m.service === 'iMessage') this.setPhoneService(from, 'iMessage', 'inbound'); else if (['SMS', 'RCS'].includes(m.service)) this.setPhoneService(from, 'SMS', 'inbound');
     this.sendblueRefused.delete(from);
-    const text = String(m.content || '').trim() || (m.media_url ? '[sent a photo]' : '');
-    if (!text) return { ok: true };
+    const text = String(m.content || '').trim();
+    if (!text && !m.media_url) return { ok: true };
     if (!this.live) { if (/^stop$/i.test(text)) this.stop(from); return { ok: true }; }
-    this.flow.enqueue(from, text, { sid: handle });
+    this.flow.enqueue(from, text, { sid: handle, media: m.media_url ? { url: m.media_url, type: '' } : null });
     return { ok: true };
   }
   sendblueStatus(key, id, m) {
@@ -401,7 +410,11 @@ export class Sms {
     this.db.prepare('INSERT INTO sms_inbound VALUES(?,?)').run(params.MessageSid, Date.now());
     if (!this.live) this.stop(from);
     // Handled after the webhook returns (the agent may take a few seconds); replies go out through the send queue.
-    else { this.lastIn.set(from, { handle: '', service: 'SMS' }); this.flow.enqueue(from, params.Body || '', { sid: params.MessageSid, optOutType: params.OptOutType || '' }); }
+    else {
+      this.lastIn.set(from, { handle: '', service: 'SMS' });
+      const photo = Number(params.NumMedia) > 0 && /^image\//.test(params.MediaContentType0 || '') ? { url: params.MediaUrl0, type: params.MediaContentType0 } : null;
+      this.flow.enqueue(from, params.Body || '', { sid: params.MessageSid, optOutType: params.OptOutType || '', media: photo });
+    }
     return empty;
   }
 }

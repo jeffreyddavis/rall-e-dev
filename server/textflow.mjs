@@ -105,7 +105,7 @@ export class TextFlow {
   }
   idle() { return Promise.all([...this.chains.values()]); }
   async handle(phone, body, opts) {
-    const text = reactionText(String(body || '').trim().slice(0, 640));
+    const said = reactionText(String(body || '').trim().slice(0, 640)), text = opts.media ? (said ? `${said}\n[sent a photo]` : '[sent a photo]') : said;
     if (this.pre(phone, text, opts)) return;
     this.sms.typing(phone); // iMessage "…" bubble while the agent thinks
     let reply;
@@ -213,10 +213,12 @@ export class TextFlow {
     return this.route(phone, text);
   }
   // Logging, opt-out and gatekeeping shared by both engines. Returns true when the text needs no further handling.
-  pre(phone, text, { sid = `SIM${randomUUID()}`, optOutType = '' } = {}) {
+  pre(phone, text, { sid = `SIM${randomUUID()}`, optOutType = '', media = null } = {}) {
     // Card numbers never get stored or passed to the AI: scrub them and point the person to the secure vault page.
     const scrub = scrubCards(text);
-    this.sms.log(phone, 'in', scrub.clean, { sid });
+    const logged = this.sms.log(phone, 'in', scrub.clean, { sid });
+    // A photo they texted: kept briefly so "use this as my profile photo" works (only the link; nothing is downloaded yet).
+    if (media?.url) { this.sms.lastMedia.set(phone, { ...media, at: Date.now() }); if (logged) this.db.prepare('UPDATE sms_log SET media=? WHERE id=?').run('photo', logged); }
     if (scrub.found && !this.sms.isStopped(phone)) {
       this.reply(phone, 'For your safety I deleted that card number and didn’t save it. Please never text card details. I’ll send you a private link to add a card securely.', 'vault');
       if (this.sms.vault.enabled && this.threadsFor(phone).length) { try { this.sms.vault.sendLink(phone, 'card'); } catch (e) { if (!e.status) throw e; } }
@@ -246,7 +248,14 @@ export class TextFlow {
       this.reply(phone, android ? 'Got it, regular texts it is. You can react with any emoji and I’ll get it.' : 'Great, I’ll switch you to iMessage.', 'reply');
       return true;
     }
-    if (!threads.length && !this.db.prepare('SELECT 1 FROM sms_pending WHERE phone=?').get(phone) && !this.sms.canStart(phone)) return true; // Live mode: only approved testers can start.
+    if (!threads.length && !this.db.prepare('SELECT 1 FROM sms_pending WHERE phone=?').get(phone) && !this.sms.canStart(phone)) {
+      // Invite-only: someone who isn't a member gets one friendly answer (they texted us, so we may reply once), then quiet.
+      if (!this.db.prepare("SELECT 1 FROM sms_log WHERE phone=? AND kind='waitlist' LIMIT 1").get(phone)) {
+        this.sms.deliver(phone, `Hi! Rall-e is invite-only right now. If a friend is on Rall-e, ask them for their invite link, or join the waitlist at ${this.sms.base || 'https://rall-e.ai'} and we’ll save you a spot. Reply STOP to opt out.`, { kind: 'waitlist', inboundReply: true });
+        stats.bump('waitlist_texts', 1, phone);
+      }
+      return true;
+    }
     return false;
   }
   route(phone, text) {

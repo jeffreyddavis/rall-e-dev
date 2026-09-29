@@ -33,8 +33,8 @@ export default function EveningView({ state, meId = null, host = false, readOnly
       <h1>{plan.title}</h1>
       <p>{host ? 'Your plan' : `${state.name}’s plan`} · {stops.length} {stops.length === 1 ? 'stop' : 'stops'} · {STATUS[plan.status]}</p>
       <div className="evening-people">
-        {!readOnly && <div className="invited-avatars">{[{ name: state.name, response: 'yes', id: 'host' }, ...people].map((p, i) =>
-          <span className={`avatar avatar-${i % 4} ${p.response === 'yes' ? '' : 'faded'}`} key={p.id} title={`${p.name}: ${({ yes: 'going', maybe: 'maybe', no: 'can’t make it', pending: 'hasn’t replied' })[p.response]}`}>{p.name.slice(0, 1)}</span>)}</div>}
+        {!readOnly && <div className="invited-avatars">{[{ name: state.name, response: 'yes', id: 'host', photo: state.hostPhoto }, ...people].map((p, i) =>
+          <span className={`avatar avatar-${i % 4} ${p.response === 'yes' ? '' : 'faded'} ${p.photo ? 'has-photo' : ''}`} key={p.id} title={`${p.name}: ${({ yes: 'going', maybe: 'maybe', no: 'can’t make it', pending: 'hasn’t replied' })[p.response]}`}>{p.photo ? <img src={p.photo} alt=""/> : p.name.slice(0, 1)}</span>)}</div>}
         <span>{going} going{maybe ? `, ${maybe} maybe` : ''}</span>
       </div>
       {me && !closed && <div className="rsvp-buttons">{[['yes', 'I’m in'], ['maybe', 'Maybe'], ['no', 'Can’t go']].map(([value, label]) =>

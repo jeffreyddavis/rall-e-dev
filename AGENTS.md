@@ -12,6 +12,11 @@ This file covers how the project works and the rules. **`docs/STATUS.md`** cover
   - It sends options as picture cards and builds a plan with one or more stops.
   - It invites friends and fans out every change.
 - **Friends** get a personal link (`/p/<token>`). There they RSVP, tap "My pick", suggest ideas and chat. Once opted in, they can do all of this by text too.
+- **Invite-only.**
+  - The website (`/`) is the front door: join the waitlist, or accept an invite at `/i/<code>`. There is no web chat anymore; Rall-e lives in texts.
+  - Every member gets 10 invites (`INVITES_PER_USER`). An invite counts when someone joins. The inviter is texted when that happens.
+  - Members manage reusable links, and their profile photo, on a private page at `/me/<token>`, which Rall-e texts them (30 days).
+  - Strangers who text Rall-e get one "invite-only / waitlist" reply, then silence.
 - **Pages:**
   - `/n/<token>`: host's plan view.
   - `/s/<token>`: public share page with "join".
@@ -29,6 +34,7 @@ This file covers how the project works and the rules. **`docs/STATUS.md`** cover
 | Texting engine | `server/textflow.mjs` | Threads (`sms_threads`: phone ↔ session, role host/guest), routing, keyword fallback engine, group fan-out (`onPlanEvent`), option cards, invites, opt-in by texting in, `newPlan`. |
 | AI agent | `server/agent.mjs`, `features.mjs` | The system prompt, per-turn "situation" (`state()`), tools per role (`new`/`host`/`guest`), and the tool loop. `call()` tries Claude, then OpenAI on outage errors (circuit breaker of about 2 minutes). |
 | Messaging transport | `server/sms.mjs`, `sendblue.mjs` | `deliver()` is the **only** way to send, and it enforces opt-in, STOP and daily caps. Twilio handles SMS/MMS; Sendblue handles iMessage/RCS. There's also the webhook catch-up poller (`catchUp`), the ops data and the lab. |
+| Invites / waitlist / photos | `server/invites.mjs`, `photos.mjs`, `src/Design.jsx` (Onboarding: waitlist + invite join), `src/MePage.jsx` | Tables: `invite_links`, `invite_uses`, `invite_quota`, `me_links`, `waitlist`, `profile_photos`. Photos are re-encoded with `sharp` to 320×320 JPEG, which strips EXIF/GPS. The Apache body limit is 32 KB, so the page shrinks uploads in the browser first. |
 | Discovery | `server/discovery.mjs`, `catalog.mjs` | Ticketmaster, Google Places (+photos), SerpApi movie showtimes (12h cache), and a Gracenote adapter (key pending). Found items are persisted in `discovered_events`. |
 | Other server modules | `vault.mjs`, `signup.mjs`, `og.mjs`, `stats.mjs`, `usage.mjs`, `wipe.mjs` | Vault (AES-GCM, Stripe SetupIntents), web signup/opt-in codes, OG images (JPEG), anonymous Insights, API usage, and wipes. |
 | Front end | `src/*.jsx` | React + Vite. The main files are `OpsPage.jsx`, `Insights.jsx`, `EveningView.jsx`, `GuestPage.jsx`, `VaultPage.jsx`, `OptionCard.jsx` and `SharePage.jsx`. |

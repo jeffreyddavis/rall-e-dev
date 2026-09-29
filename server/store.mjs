@@ -112,9 +112,12 @@ export class Store {
   view(s, guestId = null) {
     // Real outings (from discovery) referenced by this plan travel with the view so the page can show them.
     const extra = [...new Set([...s.plan.stops, ...s.plan.suggestions.map(x => x.eventId), s.recommendation].filter(Boolean))].map(eventById).filter(e => e && !EVENTS.includes(e));
-    const shared = { id: s.id, name: s.name, city: s.city, revision: s.revision, plan: s.plan, activity: s.activity, events: [...EVENTS, ...extra], guestId, limits: { stops: MAX_STOPS } };
+    // Profile photos (when the host or a friend has one): looked up through their phone by the texting layer.
+    const photo = pid => { try { return this.photoOf?.(s, pid) || null; } catch { return null; } };
+    const plan = { ...s.plan, participants: s.plan.participants.map(p => ({ ...p, photo: photo(p.id) })) };
+    const shared = { id: s.id, name: s.name, city: s.city, revision: s.revision, plan, hostPhoto: photo(''), activity: s.activity, events: [...EVENTS, ...extra], guestId, limits: { stops: MAX_STOPS } };
     if (!guestId) return { ...s, ...shared };
-    return { ...shared, plan: { ...s.plan, participants: s.plan.participants.map(({ invite, consent, stopped, ...p }) => ({ ...p, ...(p.id === guestId ? { consent, stopped } : {}) })) } };
+    return { ...shared, plan: { ...plan, participants: plan.participants.map(({ invite, consent, stopped, ...p }) => ({ ...p, ...(p.id === guestId ? { consent, stopped } : {}) })) } };
   }
   hostAction(id, action, data = {}) { return this.hostActionAt(this.resolve(id), action, data); }
   hostActionAt(digest, action, data = {}, meta = {}) {
