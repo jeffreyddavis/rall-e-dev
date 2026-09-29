@@ -31,6 +31,13 @@ export class Sendblue {
     const r = await this.call('/api/send-message', body);
     return { sid: r.message_handle, status: STATUS[r.status] || 'accepted' };
   }
+  // Recent incoming messages on our line (used to catch any whose webhook never reached us).
+  async recentInbound(limit = 20) {
+    const response = await this.fetch(`https://api.sendblue.co/api/v2/messages?limit=${limit}`, { signal: AbortSignal.timeout(10000), headers: { 'sb-api-key-id': this.key, 'sb-api-secret-key': this.secret } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(`Sendblue ${response.status}`), { status: response.status });
+    return (result.data || []).filter(m => !m.is_outbound && !m.group_id && (m.sendblue_number || m.to_number) === this.number);
+  }
   status(value) { return STATUS[String(value || '').toUpperCase()] || null; }
   react(handle, reaction) { return this.call('/api/send-reaction', { from_number: this.number, message_handle: handle, reaction }); }
   // Free lookup (not a message, no seat): does this number use iMessage? Returns 'iMessage', 'SMS' (includes RCS) or null (inconclusive).

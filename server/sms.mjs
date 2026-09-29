@@ -208,7 +208,8 @@ export class Sms {
     if (this.isStopped(row.phone)) { this.db.prepare("UPDATE sms_log SET status='blocked',error='opted-out' WHERE id=?").run(id); return; }
     this.db.prepare("UPDATE sms_log SET status='submitting' WHERE id=?").run(id);
     // Android / non-iMessage numbers go straight to Twilio SMS so they never use a Sendblue seat.
-    if (this.provider === 'sendblue' && this.twilioReady && (await this.serviceFor(row.phone)) === 'SMS') return this.sendTwilio(row, id);
+    // ...unless they texted Rall-e's Sendblue line themselves: then we answer on that same line, so they see one thread (and RCS link previews).
+    if (this.provider === 'sendblue' && this.twilioReady && (await this.serviceFor(row.phone)) === 'SMS' && this.lastLine(row.phone) !== 'sendblue') return this.sendTwilio(row, id);
     if (this.provider === 'sendblue' && !(this.twilioReady && this.sendblueRefused.has(row.phone))) {
       try {
         const sent = await this.sendblue.send(row);
@@ -295,6 +296,36 @@ export class Sms {
     return this.flow.linkHost(session, phone);
   }
   // ---------- Sendblue (iMessage) ----------
+  // Which of our lines this person last texted: Twilio message SIDs are SM/MM + 32 hex; Sendblue handles are UUIDs.
+  lastLine(phone) {
+    const r = this.db.prepare("SELECT sid FROM sms_log WHERE phone=? AND direction='in' AND sid IS NOT NULL AND sid NOT LIKE 'SIM%' ORDER BY rowid DESC LIMIT 1").get(phone);
+    return !r ? '' : /^(SM|MM)[\da-f]{32}$/i.test(r.sid) ? 'twilio' : 'sendblue';
+  }
+  // Safety net for webhooks that never arrive (a timeout between the carrier and us drops the text silently):
+  // every minute, look at the last few incoming messages on both lines and handle any we haven't seen.
+  startCatchUp(ms = 60000) {
+    if (!this.live || this.catchUpTimer) return;
+    this.catchUpTimer = setInterval(() => this.catchUp().catch(e => console.log(`Inbound catch-up failed: ${e.message}`)), ms); this.catchUpTimer.unref?.();
+  }
+  async catchUp(windowMs = 60 * 60000) {
+    const since = Date.now() - windowMs, seen = sid => this.db.prepare('SELECT 1 FROM sms_inbound WHERE sid=?').get(sid);
+    let found = 0;
+    if (this.twilioReady && this.client?.messages?.list) {
+      for (const m of await this.client.messages.list({ to: this.twilioFrom, dateSentAfter: new Date(since), limit: 20 })) {
+        if (m.direction !== 'inbound' || seen(m.sid) || new Date(m.dateSent || m.dateCreated).getTime() < since) continue;
+        console.log(`Caught up a missed incoming text (Twilio) from ••• ${String(m.from).slice(-4)}`); found++;
+        this.inbound({ From: m.from, To: m.to, Body: m.body, MessageSid: m.sid });
+      }
+    }
+    if (this.provider === 'sendblue' && this.sendblue.configured) {
+      for (const m of await this.sendblue.recentInbound()) {
+        if (!m.message_handle || seen(m.message_handle) || new Date(m.date_sent || m.date_updated).getTime() < since) continue;
+        console.log(`Caught up a missed incoming text (Sendblue) from ••• ${String(m.from_number).slice(-4)}`); found++;
+        this.sendblueInbound(this.sendblue.hook, m);
+      }
+    }
+    return found;
+  }
   sendblueInbound(key, m) {
     this.sendblue.verify(key);
     if (m.is_outbound || m.group_id) return { ok: true }; // our own echoes; group chats not supported yet

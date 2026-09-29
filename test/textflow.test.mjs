@@ -196,3 +196,15 @@ test('option cards on plain SMS go as picture messages with a title (no link pre
   assert.match(rows[0].media, /\/og\/e\/.+\.jpg$/); assert.match(rows[0].body, /\nhttps?:\/\/\S+\/e\//);
   t.store.close();
 });
+
+test('a text whose webhook never arrived is picked up by the catch-up check, once', async () => {
+  const inboundSid = 'SM' + 'e'.repeat(32);
+  const t = setup({ SMS_MODE: 'live', SMS_ALLOWED_RECIPIENTS: '+13105550101' });
+  t.sms.client.messages.list = async () => [{ sid: inboundSid, direction: 'inbound', from: '+13105550101', to: from, body: 'hey', dateSent: new Date() }];
+  assert.equal(await t.sms.catchUp(), 1);
+  assert.equal(await t.sms.catchUp(), 0); // already handled
+  await new Promise(r => setTimeout(r, 50));
+  assert.equal(t.store.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE direction='in' AND sid=?").get(inboundSid).n, 1);
+  assert.equal(t.sms.lastLine('+13105550101'), 'twilio');
+  t.store.close();
+});

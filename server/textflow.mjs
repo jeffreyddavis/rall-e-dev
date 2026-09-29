@@ -146,7 +146,9 @@ export class TextFlow {
   }
   onSms(phone) {
     if (this.sms.provider !== 'sendblue') return true;
-    return this.sms.phoneService(phone)?.service === 'SMS' || this.sms.lastIn?.get(phone)?.service === 'SMS' || this.sms.sendblueRefused?.has(phone);
+    const service = this.sms.lastIn?.get(phone)?.service;
+    if (this.sms.lastLine(phone) === 'sendblue') return service !== 'RCS' && service !== 'iMessage' && this.sms.phoneService(phone)?.service === 'SMS'; // RCS draws link previews itself
+    return this.sms.phoneService(phone)?.service === 'SMS' || service === 'SMS' || this.sms.sendblueRefused?.has(phone);
   }
   // ---------- joining a shared night ----------
   hostPhone(digest) { return this.db.prepare("SELECT phone FROM sms_threads WHERE digest=? AND role='host' ORDER BY updated DESC").get(digest)?.phone || ''; }

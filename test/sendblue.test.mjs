@@ -108,6 +108,14 @@ test('Android: looked-up SMS numbers skip Sendblue entirely, ANDROID/iPhone repl
   assert.equal(reactionText('Liked “See you at 6”'), '[Reacted 👍 to your message: "See you at 6"]');
   assert.equal(reactionText('😂 to "that was hilarious"'), '[Reacted 😂 to your message: "that was hilarious"]');
   assert.equal(reactionText('I liked the show'), 'I liked the show');
+  // An Android user who texts the Sendblue line (RCS) is answered on that same line, not from the Twilio number.
+  await sms.setPhoneType(ANDY, 'android'); await sms.idle();
+  const before = twilioSent.length, sbBefore = sb.filter(c => c.url.endsWith('send-message')).length;
+  sms.sendblueInbound(HOOK, { content: 'what time?', from_number: ANDY, to_number: LINE, message_handle: 'RCS-1', is_outbound: false, service: 'RCS' });
+  sms.deliver(ANDY, 'reply on the same line'); await sms.idle();
+  assert.equal(sms.lastLine(ANDY), 'sendblue');
+  assert.ok(sb.filter(c => c.url.endsWith('send-message')).slice(sbBefore).some(c => c.body.content === 'reply on the same line'));
+  assert.ok(!twilioSent.slice(before).some(p => p.body === 'reply on the same line'));
   await sms.idle(); store.close();
 });
 
