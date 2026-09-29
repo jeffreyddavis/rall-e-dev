@@ -1,0 +1,7 @@
+# Add to ~/.ssh/config. Ask Jeff for the key file (never commit it).
+Host rally
+  HostName 13.57.102.105
+  User ubuntu
+  IdentityFile ~/.ssh/rally.pem
+  StrictHostKeyChecking accept-new
+  ConnectTimeout 10

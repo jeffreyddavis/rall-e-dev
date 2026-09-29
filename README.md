@@ -1,5 +1,7 @@
 # Rall-e prototype
 
+> **New here (developer or AI agent)? Read [AGENTS.md](AGENTS.md) and [docs/STATUS.md](docs/STATUS.md) first.** They are kept current; the walkthrough below describes the original web demo and parts of it are out of date (texting is now the main experience).
+
 A conversational Hollywood outing demo: discover an idea, bring friends in through personal links, collect text/web responses and suggestions, and confirm one shared plan. The business export takes precedence over the older brief: booking, cost splitting, payments, and calendar connectors are excluded.
 
 **Live demo: https://rall-e.ai** (rall-e.joinfitapp.com and www redirect here)
