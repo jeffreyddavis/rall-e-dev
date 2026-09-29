@@ -263,19 +263,21 @@ export class Sms {
   }
   // ---------- demo operator console (/ops) ----------
   opsPeople() {
-    const phones = [...this.allowed].filter(p => !/^\+1\d{3}555\d{4}$/.test(p));
+    // Everyone we can text, plus anyone who has texted us (even if we can't reply yet), so nobody is invisible here.
+    const inbound = this.db.prepare("SELECT DISTINCT phone FROM sms_log WHERE direction='in'").all().map(r => r.phone);
+    const phones = [...new Set([...this.allowed, ...inbound])].filter(p => !/^\+1\d{3}555\d{4}$/.test(p));
     return phones.map(phone => {
       const threads = this.flow.threadsFor(phone), t = threads[0];
       const last = this.db.prepare("SELECT direction, body, created FROM sms_log WHERE phone=? AND status!='blocked' ORDER BY rowid DESC LIMIT 1").get(phone);
       const name = t ? (t.role === 'host' ? t.s.name : t.person?.name) : '';
-      return { phone, name: name || '', tester: this.testers.has(phone), channel: this.phoneService(phone)?.service || this.lastIn.get(phone)?.service || '', stopped: this.isStopped(phone),
+      return { phone, name: name || '', tester: this.testers.has(phone), optedIn: this.allowed.has(phone), channel: this.phoneService(phone)?.service || this.lastIn.get(phone)?.service || '', stopped: this.isStopped(phone),
         plans: threads.slice(0, 3).map(x => ({ role: x.role, title: x.s.plan.title, host: x.s.name, status: x.s.plan.status })),
         location: this.discovery.location(phone)?.label || '', last: last ? { from: last.direction === 'in' ? 'them' : 'rall-e', text: last.body.slice(0, 120), at: last.created } : null,
         busy: this.flow.chains.has(phone) };
     }).sort((a, b) => (b.last?.at || 0) - (a.last?.at || 0));
   }
   opsThread(phone) {
-    phone = normalize(phone); if (!this.allowed.has(phone)) fail(404, 'Not a Rall-e number.');
+    phone = normalize(phone); if (!this.allowed.has(phone) && !this.db.prepare("SELECT 1 FROM sms_log WHERE phone=? AND direction='in' LIMIT 1").get(phone)) fail(404, 'Not a Rall-e number.');
     const messages = this.db.prepare("SELECT direction, body, kind, created, status, error FROM sms_log WHERE phone=? ORDER BY rowid DESC LIMIT 60").all(phone).reverse();
     return { phone, messages, features: this.flow.agent.features.seen(phone), busy: this.flow.chains.has(phone) };
   }

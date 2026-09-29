@@ -50,6 +50,7 @@ export function parseInvitees(text) {
   return out;
 }
 
+const OPTIN_NOTE = 'Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out, HELP for help.';
 export class TextFlow {
   constructor(store, sms) {
     this.store = store; this.sms = sms; this.db = store.db; this.fanout = 0;
@@ -215,6 +216,15 @@ export class TextFlow {
     if (['START', 'UNSTOP'].includes(text.toUpperCase()) || optOutType === 'START') { this.sms.unstop(phone); return true; }
     if (this.sms.isStopped(phone)) return true;
     const threads = this.threadsFor(phone);
+    // Someone a host invited who texts Rall-e themselves has asked to talk to us: that text is their opt-in.
+    // (Their very first reply still carries the opt-out and help wording.)
+    if (this.sms.live && !this.sms.allowed.has(phone) && threads.some(t => t.role === 'guest')) {
+      try {
+        this.sms.canOptIn();
+        this.sms.optIn(phone, 'texted-in-invited', `Texted Rall-e first after ${threads.find(t => t.role === 'guest').s.name} invited them. First reply included: ${OPTIN_NOTE}`);
+        this.reply(phone, `Rall-e: you’re set up for texts about plans you’re invited to. ${OPTIN_NOTE}`, 'optin');
+      } catch (e) { if (!e.status) throw e; }
+    }
     if (/^help$/i.test(text) || optOutType === 'HELP') { this.reply(phone, this.help(threads[0])); return true; }
     if (/^(android|iphone)[.!]*$/i.test(text) && this.sms.provider === 'sendblue') {
       const android = /android/i.test(text);

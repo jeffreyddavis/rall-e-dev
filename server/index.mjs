@@ -137,7 +137,7 @@ const server = http.createServer(async (req, res) => {
       const match = /^\/api\/guest\/([\w-]+)$/.exec(url.pathname);
       if (match) {
         const shareOf = () => { const { s, row } = store.guest(match[1]); return `${publicBase}/s/${store.shareToken(s, row.session)}`; };
-        const texting = () => { const { row, person } = store.guest(match[1]); return Boolean(sms.db.prepare('SELECT 1 FROM sms_threads WHERE digest=? AND participant=?').get(row.session, person.id)); };
+        const texting = () => { const { row, person } = store.guest(match[1]); const r = sms.db.prepare('SELECT phone FROM sms_threads WHERE digest=? AND participant=?').get(row.session, person.id); return Boolean(r && (!sms.live || sms.allowed.has(r.phone)) && !sms.isStopped(r.phone)); }; // "on" only once they can really get texts
         if (req.method === 'GET') { const { s, person } = store.guest(match[1]); return json(res, 200, { ...store.view(s, person.id), shareUrl: shareOf(), textNumbers: textNumbers(), texting: texting() }); }
         if (req.method === 'POST') { const { action, ...data } = await body(req); if (['smsReply', 'chat'].includes(action)) fail(403, 'Use the signed SMS webhook.'); return json(res, 200, { ...store.guestAction(match[1], action, data), shareUrl: shareOf(), textNumbers: textNumbers() }); }
         fail(405, 'Method not allowed.');
@@ -155,7 +155,7 @@ const server = http.createServer(async (req, res) => {
         if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
         if (url.pathname === '/api/ops/gap') { const input = await body(req); stats.setGap(String(input.category || ''), input); return json(res, 200, { ok: true }); }
         const input = await body(req), phone = normalizePhone(input.phone || '');
-        if (!phone || !sms.allowed.has(phone)) fail(404, 'Not a Rall-e number.');
+        if (!phone || !(sms.allowed.has(phone) || (url.pathname === '/api/ops/wipe' && sms.db.prepare("SELECT 1 FROM sms_log WHERE phone=? LIMIT 1").get(phone)))) fail(404, 'Not a Rall-e number.');
         if (sms.isStopped(phone) && url.pathname !== '/api/ops/wipe') fail(409, 'They opted out (STOP).');
         if (url.pathname === '/api/ops/nudge') {
           const f = input.feature ? featureById(input.feature) : null, note = String(input.note || '').trim().slice(0, 600);

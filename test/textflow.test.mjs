@@ -172,3 +172,15 @@ test('a friend invited by link can turn on texts from their invite page (consent
   t.text(HOST, 'Running late, sorry all'); assert.match(t.last(DEB), /Jeff: Running late, sorry all/);
   await t.sms.idle(); t.store.close();
 });
+
+test('an invited friend who texts Rall-e first is opted in and gets the opt-out wording', () => {
+  const t = setup({ SMS_MODE: 'live', SMS_ALLOWED_RECIPIENTS: '+13105550101' });
+  planByText(t);
+  const mike = t.sms.labPhone ? t.sms.labPhone(MIKE) : MIKE;
+  assert.equal(t.sms.allowed.has(mike), false);
+  t.text(MIKE, 'what time is it again?');
+  assert.equal(t.sms.allowed.has(mike), true);
+  assert.ok(t.out(MIKE).some(m => /set up for texts.*Reply STOP to opt out/.test(m.body) && m.status !== 'blocked'));
+  assert.ok(t.sms.opsThread(mike).messages.length > 0); // (the people list hides fictional 555 lab numbers)
+  t.store.close();
+});

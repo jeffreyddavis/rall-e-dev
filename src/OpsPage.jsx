@@ -77,7 +77,7 @@ export default function OpsPage() {
         {people.map(p => <button key={p.phone} className={`ops-person ${p.phone === phone ? 'on' : ''}`} onClick={() => { setPhone(p.phone); setThread(null); setFeature(''); }}>
           <span className="ops-avatar">{(p.name || '?').slice(0, 1)}</span>
           <span className="ops-person-text">
-            <strong>{p.name || 'No name yet'} <small>{last4(p.phone)}</small>{p.channel && <i className={p.channel === 'iMessage' ? 'blue' : ''}>{p.channel === 'iMessage' ? 'iMessage' : 'SMS'}</i>}{!p.tester && <i>joined</i>}{p.stopped && <i className="stop">STOP</i>}</strong>
+            <strong>{p.name || 'No name yet'} <small>{last4(p.phone)}</small>{p.channel && <i className={p.channel === 'iMessage' ? 'blue' : ''}>{p.channel === 'iMessage' ? 'iMessage' : 'SMS'}</i>}{p.optedIn === false ? <i className="stop">not opted in</i> : !p.tester && <i>joined</i>}{p.stopped && <i className="stop">STOP</i>}</strong>
             <span>{p.plans[0] ? `${p.plans[0].role === 'host' ? 'Hosting' : `In ${p.plans[0].host}’s`} ${p.plans[0].title}` : 'No plan yet'}{p.location ? ` · ${p.location}` : ''}</span>
             {p.busy ? <em>Rall-e is typing…</em> : p.last && <em>{p.last.from === 'them' ? '' : 'Rall-e: '}{p.last.text} · {ago(p.last.at)}</em>}
           </span></button>)}
