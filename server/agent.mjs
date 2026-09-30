@@ -97,6 +97,7 @@ export class Agent {
     const lines = [this.channel(phone), this.features.stateLine(t.phone), `Role: ${role === 'host' ? `HOST (their name: ${s.name})` : `INVITED FRIEND (their name: ${person.name}; host: ${s.name})`}`,
       `Plan: "${p.title}" — ${({ proposed: `still being planned (${p.mode === 'loose' ? 'friends can suggest changes' : 'locked: friends cannot suggest changes'})`, confirmed: 'CONFIRMED. To change anything (stops, suggestions, switching), the host must first reopen it with reopen_plan', happened: 'already happened', dropped: 'called off' })[p.status]}. Stage: ${s.stage}.`,
       role === 'host' && this.flow.contacts(t.digest).length ? `Saved contacts (numbers on file, invite by name): ${this.flow.contacts(t.digest).join(', ')}` : '',
+      role === 'host' ? this.flow.sms.polls?.openFor(s.id) || '' : '',
       `Stops: ${p.stops.length ? p.stops.map((id, i) => `${i ? ` -> [${legText(this.discovery.cachedLegs?.(p.stops)[i - 1]) || 'travel time unknown'}] -> ` : ''}${id} (${eventById(id).short}, ${eventById(id).time})`).join('') : 'none yet'}`,
       s.recommendation && !p.stops.length ? `Current recommendation being discussed: ${s.recommendation}` : '',
       `People: ${p.participants.length ? p.participants.map(x => `${x.name}=${x.response}`).join(', ') : 'nobody invited yet'}`,
@@ -182,6 +183,7 @@ export class Agent {
       T('cancel_plan', 'Call off the plan; friends are told.'),
       T('mark_happened', 'Mark the outing as done (after it happened).'),
       T('start_new_plan', 'Start a brand-new, unrelated plan. Rarely needed: to change the current plan use reopen_plan / add_stop / pick_suggestion instead. The current plan stays as it is for the friends already on it (they keep their links and can still text); the host can go back to it with switch_plan. Saved contacts can be invited by name. Only when the host explicitly wants something new.'),
+      ...(live ? [T('start_poll', 'Let the whole group choose between 2-8 options: everyone on the plan gets a personal link where they pick one, rank them, or leave it to the host (Donovan\'s poll page). Use when the host wants the group to decide ("let everyone vote", "ask the group"). Friends who get texts are texted their link; for the others you get links to hand the host to forward.', { title: { type: 'string', description: 'Short, e.g. "Saturday dinner"' }, event_ids: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 8 } }, ['title', 'event_ids'])] : []),
       T('get_links', 'Get the host\'s own plan page link (the whole plan: every stop plus friends\' ideas and picks) and each friend\'s personal plan link. Use when they ask to see the plan or the links.'),
       T('message_group', 'Share the host\'s message, word for word, with everyone on the plan. Only when they clearly want the group to see it.', { text: { type: 'string', description: 'Their exact words' } }, ['text'])];
   }
@@ -270,6 +272,10 @@ export class Agent {
           if (s.stage === 'location') act('location');
           const after = input.another && !input.category ? act('alternative') : act('vibe', { category: input.category || eventById(s.recommendation)?.category || 'dinner' });
           const e = eventById(after.recommendation); return `Recommendation: ${e.id} = ${e.short} at ${e.venue}, ${e.time}, ${e.price ? `$${e.price}/person sample` : 'free'}. ${e.tag}`;
+        }
+        if (name === 'start_poll') {
+          const r = flow.sms.polls.create({ ...t, phone }, { title: input.title, eventIds: input.event_ids });
+          return `Poll "${r.title}" started with ${r.options} options. ${r.texted.length ? `Texted: ${r.texted.join(', ')}.` : 'No friends get Rall-e texts yet.'}${r.forward.length ? ` Links for the host to forward (one per person, don't mix them up): ${r.forward.map(f => `${f.name}: ${f.link}`).join(' ; ')}` : ''}\nThe host's own voting and results link: ${r.hostLink}\nTell the host in one or two lines; you'll see results in the situation as answers arrive.`;
         }
         if (name === 'make_plan') { if (s.stage === 'location') act('location'); act('accept', { eventId: input.event_id }); return `Plan created: ${eventById(input.event_id).short}. Ask who to invite (names and numbers).`; }
         if (name === 'invite') {

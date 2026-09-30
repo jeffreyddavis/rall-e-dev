@@ -1,6 +1,7 @@
 import { Invites } from './invites.mjs';
 import { Photos } from './photos.mjs';
 import { Sources } from './sources.mjs';
+import { Polls } from './polls.mjs';
 import twilio from 'twilio';
 import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { fail } from './store.mjs';
@@ -72,6 +73,7 @@ export class Sms {
     this.flow = new TextFlow(store, this);
     this.invites = new Invites(this, env);
     this.photos = new Photos(this, env, fetchImpl);
+    this.polls = new Polls(this);
     this.sources = new Sources(this, env, fetchImpl); this.discovery.curated = this.sources;
     this.lastMedia = new Map();
     this.labPhones = new Set(); // fictional 555 phones the presenter is playing in /lab (replies are recorded, never sent) // phone -> the latest photo they texted { url, type, at }

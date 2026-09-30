@@ -124,6 +124,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (mePhoto && req.method === 'DELETE') { const phone = sms.invites.phoneFor(mePhoto[1]); sms.photos.remove(phone); return json(res, 200, sms.invites.view(phone)); }
       if (me && req.method === 'POST' && me[2]) { const phone = sms.invites.phoneFor(me[1]); sms.invites.create(phone, (await body(req)).name || ''); return json(res, 200, sms.invites.view(phone)); }
+      const poll = /^\/api\/poll\/([\w-]{16})$/.exec(url.pathname);
+      if (poll && req.method === 'GET') return json(res, 200, { ...sms.polls.view(poll[1]), textNumbers: textNumbers() });
+      if (poll && req.method === 'POST') return json(res, 200, sms.polls.answer(poll[1], await body(req)));
       if (url.pathname === '/api/travel' && req.method === 'GET') {
         const ids = String(url.searchParams.get('ids') || '').split(',').filter(id => /^[\w-]{1,40}$/.test(id) && eventById(id)).slice(0, 8);
         const d = sms.discovery, legs = ids.length > 1 ? await Promise.race([d.legs(ids), new Promise(r => setTimeout(() => r(d.cachedLegs(ids)), 6000))]) : [];
@@ -303,11 +306,12 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': jpg.length, 'cache-control': 'public, max-age=86400' }); return res.end(jpg);
     }
     // Event and invite pages carry preview tags so a texted link shows the frosted-glass card.
-    const pageMatch = production && (/^\/e\/([\w-]{1,40})$/.exec(url.pathname) || /^\/p\/([\w-]+)$/.exec(url.pathname) || /^\/n\/([\w-]{20,40})$/.exec(url.pathname) || /^\/s\/([\w-]{12})$/.exec(url.pathname) || /^\/i\/([a-z0-9-]{8,64})$/.exec(url.pathname));
+    const pageMatch = production && (/^\/e\/([\w-]{1,40})$/.exec(url.pathname) || /^\/p\/([\w-]+)$/.exec(url.pathname) || /^\/n\/([\w-]{20,40})$/.exec(url.pathname) || /^\/s\/([\w-]{12})$/.exec(url.pathname) || /^\/i\/([a-z0-9-]{8,64})$/.exec(url.pathname) || /^\/q\/([\w-]{16})$/.exec(url.pathname));
     if (pageMatch && req.method === 'GET') {
       let tags = '';
       try {
         if (url.pathname.startsWith('/e/')) { const e = eventById(pageMatch[1]); if (e) tags = previewTags({ title: e.short, description: [e.time, e.venue, e.area].filter(Boolean).join(' · '), image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}/e/${e.id}` }); }
+        else if (url.pathname.startsWith('/q/')) { const v = sms.polls.view(pageMatch[1]), e = eventById(JSON.parse(sms.polls.who(pageMatch[1]).ids)[0]); tags = previewTags({ title: `${v.asker} wants your pick: ${v.title}`, description: `${v.options.length} options · ${v.answered} of ${v.total} answered`, image: e ? `${publicBase}/og/e/${e.id}.jpg` : `${publicBase}/rall-e-icon.png`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/i/')) { const l = sms.invites.lookup(pageMatch[1]); tags = previewTags({ title: `${l.inviter} invited you to Rall-e`, description: 'Rall-e plans your social life so you can focus on the fun stuff. Invite-only for now.', image: `${publicBase}/rall-e-icon.png`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/s/')) { const s = store.shared(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name}'s plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'}, planned with Rall-e`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/n/')) { const { s } = store.night(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `Your plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'} · ${s.plan.participants.filter(p => p.response === 'yes').length + 1} going`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }

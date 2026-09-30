@@ -12,7 +12,7 @@ const short = s => createHash('sha1').update(String(s)).digest('base64url').slic
 const DAY = 86400000;
 // Where a stop is, as geocoder input (address plus area, else venue plus area).
 const placeQuery = e => [e.address || e.venue, e.area].filter(Boolean).join(', ').trim();
-const distance = (a, b) => { const r = x => x * Math.PI / 180, dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+export const distance = (a, b) => { const r = x => x * Math.PI / 180, dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2; return 2 * 6371000 * Math.asin(Math.sqrt(h)); };
 // "8 min walk", "about 25 min drive", "1 hr 10 min drive".
 export const legText = l => {
@@ -323,7 +323,7 @@ export class Discovery {
       const line = (p.currentOpeningHours?.weekdayDescriptions || p.regularOpeningHours?.weekdayDescriptions || []).find(h => h.startsWith(dayName));
       const hours = line ? line.replace(`${dayName}: `, '') : null;
       return this.shape({ id: `gp_${short(p.id)}`, source: 'Google Places', kind: 'place', category: /restaurant|food|cafe|bakery|bistro|grill|pizz|sushi|taco/i.test(type) ? 'dinner' : /bar|pub|lounge|night/i.test(type) ? 'nightlife' : /museum|gallery|art/i.test(type) ? 'museums' : /park|trail|garden|beach|hik/i.test(type) ? 'nature' : type.toLowerCase(),
-        lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null,
+        lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null, typeLabel: type.replace(/ restaurant$/i, ''),
         short: p.displayName?.text || 'A local spot', venue: p.displayName?.text || 'A local spot', area: p.shortFormattedAddress || p.formattedAddress || loc.label, address: p.formattedAddress,
         time: !hours ? 'Check hours' : /closed/i.test(hours) ? `Closed ${dayWord}` : `Open ${dayWord} ${hours}`, closedThatDay: Boolean(hours && /closed/i.test(hours)), website: p.websiteUri || null, placeId: p.id, price: null, priceText: levels[p.priceLevel] || 'See listing',
         rating: p.rating ? `${p.rating}★ (${p.userRatingCount || 0})` : null, photoRef: p.photos?.[0]?.name || null, image: p.photos?.[0]?.name ? `${this.base}/img/p/gp_${short(p.id)}` : null, age: 'See listing', url: p.googleMapsUri, description: p.editorialSummary?.text || `${type}${p.rating ? `, rated ${p.rating}★` : ''}.` });

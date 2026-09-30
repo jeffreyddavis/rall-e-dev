@@ -35,7 +35,7 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - "Add to calendar" (.ics) on plan pages.
   - Contact cards texted to Rall-e are saved for invites.
   - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
-- **Tests:** 78 pass.
+- **Tests:** 79 pass.
 
 ## Open items / next
 - **Mike's list, not built (see the recommendations in chat / below):**
@@ -56,6 +56,10 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-30, group polls (Donovan's design):**
+  - `start_poll` agent tool; `/q/<token>` pages with Pick one (default) / Rank these (drag: the card lifts and follows your finger, numbers update live; arrow keys work too) / Your call (tapping it casts the vote right away).
+  - Expandable cards show who picked what ("Waiting" until answered). A "Your vote has been cast!" screen follows.
+  - The host is texted as answers arrive and when everyone is in, and the agent sees the standings. Polls close when the plan is confirmed. Code: `server/polls.mjs`, `src/PollPage.jsx`.
 - **09-29, "check before recommending" (Marc/Emily, Jeff's closed preserve):**
   - `check_places` reads a venue's hours for the day, its own website calendar (schema.org events, .ics) and closure/season notes, then pitches real events (`ve_` ids).
   - Places searches for a specific day drop venues closed that day or permanently/temporarily closed.

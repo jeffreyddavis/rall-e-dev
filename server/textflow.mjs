@@ -488,6 +488,7 @@ export class TextFlow {
       };
       for (const r of [...hosts, ...guests]) { this.sms.deliver(r.phone, label(r), { kind: 'group' }); sent++; }
     } else if (actor === 'host') {
+      if (action === 'confirm') this.sms.polls?.close(s.id);
       if (action === 'confirm') send(guests, r => `Rall-e: ${host} confirmed ${p.title}!\n${this.itinerary(s)}\nYour plan: ${personal(r)}\n${nat ? 'Let me know if anything changes.' : 'Reply YES, MAYBE or NO if anything changes.'}`);
       if (action === 'selectSuggestion') send(guests, `Rall-e: ${host} switched the plan to ${p.title} — ${eventById(p.stops[0]).time}. ${nat ? 'Still in?' : 'Reply YES, MAYBE or NO.'}`);
       if (['addStop', 'removeStop'].includes(action)) send(guests, `Rall-e: ${host} updated the plan. ${this.itinerary(s)}`);
