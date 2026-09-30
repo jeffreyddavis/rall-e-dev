@@ -112,4 +112,6 @@ test('ipinfo lookups: US city with state abbreviation; private or foreign addres
   assert.deepEqual(await ipGuess('198.51.100.7', { fetchImpl }), { label: 'Wichita, KS', lat: 37.6922, lng: -97.3375, source: 'ip', guess: true });
   assert.equal(await ipGuess('8.8.4.4', { fetchImpl }), null);
   assert.equal(await ipGuess('192.168.1.5', { fetchImpl }), null);
+  const carrier = async () => ({ ok: true, json: async () => ({ city: 'Chicago', region: 'Illinois', country: 'US', loc: '41.8,-87.6', org: 'AS21928 T-Mobile USA, Inc.' }) });
+  assert.equal(await ipGuess('172.58.0.1', { fetchImpl: carrier }), null); // phone data: the carrier's gateway city isn't where they are
 });

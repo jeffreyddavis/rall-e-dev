@@ -48,3 +48,22 @@ test('a contact card texted in is saved to the host’s contacts (and never text
   assert.equal(t.store.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE phone='+14155550123'").get().n, 0);
   t.store.close();
 });
+
+test('checking a venue: hours that day, real events from its own site, and closure notes', async () => {
+  const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const store = new Store(':memory:');
+  const fetchImpl = async (url) => {
+    if (url.includes('places.googleapis.com/v1/places/')) return { ok: true, status: 200, headers: new Map(), json: async () => ({ businessStatus: 'OPERATIONAL', websiteUri: 'https://hall.example.com/', currentOpeningHours: { weekdayDescriptions: ['Monday: Closed', 'Tuesday: Closed', 'Wednesday: Closed', 'Thursday: Closed', 'Friday: 5–11 PM', 'Saturday: 5–11 PM', 'Sunday: Closed'] } }) };
+    if (url.includes('robots.txt')) return { ok: false };
+    if (url === 'https://hall.example.com/') return { ok: true, text: async () => `<p>The garden is closed for the season until May.</p><script type="application/ld+json">{"@type":"Event","name":"Jazz Trio","startDate":"${soon}T20:00","offers":{"price":"25"}}</script>` };
+    return { ok: false };
+  };
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', GOOGLE_MAPS_API_KEY: 'gk' }, { messages: { create: async () => ({}) } }, fetchImpl);
+  const venue = { id: 'gp_hall', kind: 'place', short: 'The Hall', venue: 'The Hall', area: 'Portsmouth, NH', time: 'Open today', placeId: 'abc', category: 'music', lat: 43, lng: -70.7 };
+  const c = await sms.discovery.checkPlace(venue, '2026-10-03');
+  assert.match(c.hours, /^Saturday: 5–11 PM/);
+  assert.equal(c.events.length, 1); assert.match(c.events[0].id, /^ve_/); assert.equal(eventById(c.events[0].id).short, 'Jazz Trio'); assert.equal(c.events[0].priceText, '$25');
+  assert.ok(c.notes.some(n => /closed for the season/.test(n)));
+  assert.match(sms.discovery.checkText(c), /Upcoming at this venue.*ve_.*Jazz Trio/s);
+  store.close();
+});

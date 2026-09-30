@@ -70,6 +70,8 @@ export async function ipGuess(ip, { token = process.env.IPINFO_TOKEN || '', fetc
     if (!r.ok) return null;
     const d = await r.json();
     if (d.bogon || d.country !== 'US' || !d.city) return null;
+    // Phone data connections exit through the carrier's gateway, often in another state (Portsmouth, NH showed up as Chicago).
+    if (/mobility|wireless|t-mobile|cellco|verizon|sprint|cellular|mobile|us cellular/i.test(d.org || '')) return null;
     const [lat, lng] = String(d.loc || '').split(',').map(Number);
     return { label: `${d.city}, ${STATE_ABBR[d.region] || d.region}`, lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, source: 'ip', guess: true };
   } catch { return null; }

@@ -50,7 +50,8 @@ export class Discovery {
       CREATE TABLE IF NOT EXISTS serp_cache (key TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS geo_cache (q TEXT PRIMARY KEY, lat REAL, lng REAL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS travel_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS weather_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS weather_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS place_checks (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
     // Plans keep referencing outings found earlier, including after a restart.
     for (const row of this.db.prepare('SELECT data FROM discovered_events WHERE fetched > ?').all(Date.now() - 60 * DAY)) registerEvent(JSON.parse(row.data));
   }
@@ -62,6 +63,55 @@ export class Discovery {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(`${new URL(url).host} ${response.status}: ${result?.error?.message || result?.fault?.faultstring || 'error'}`);
     return result;
+  }
+
+  // ---------- checking a place before recommending it ----------
+  // Google Places lists venues, not what's on. For a venue we're about to recommend: its hours that day (this week's
+  // hours include special closures), its own website's event calendar (schema.org events or an .ics feed), and lines
+  // from its site about seasons/closures/events, so Rall-e can say "closed for the season" or "Jazz trio Saturday 8pm".
+  async checkPlace(e, date = '') {
+    const k = `${e.id}|${date}`, hit = this.db.prepare('SELECT data FROM place_checks WHERE k=? AND at>?').get(k, Date.now() - 6 * 3600000);
+    if (hit) return JSON.parse(hit.data);
+    const out = { id: e.id, name: e.short, hours: e.time, events: [], notes: [] };
+    let site = e.website;
+    if (e.placeId && this.keys.google) {
+      const d = await this.get(`https://places.googleapis.com/v1/places/${e.placeId}`, { headers: { 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'businessStatus,currentOpeningHours.weekdayDescriptions,regularOpeningHours.weekdayDescriptions,websiteUri' } }).catch(() => null);
+      if (d) {
+        site ||= d.websiteUri;
+        if (/CLOSED/.test(d.businessStatus || '')) out.notes.push(`Google lists it as ${d.businessStatus.replace(/_/g, ' ').toLowerCase()}.`);
+        const target = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }) : null;
+        const week = d.currentOpeningHours?.weekdayDescriptions || d.regularOpeningHours?.weekdayDescriptions || [];
+        out.hours = target ? (week.find(h => h.startsWith(target)) || `${target}: hours not listed`) : week.join('; ') || e.time;
+      }
+    }
+    if (site && /^https?:/.test(site) && this.curated) {
+      try {
+        const { parseJsonLd, parseIcs } = await import('./sources.mjs');
+        const u = new URL(site), UA = { 'User-Agent': 'Mozilla/5.0 (compatible; Rall-e event finder; +https://rall-e.ai)' };
+        const page = async url => { if (!(await this.curated.allowed(new URL(url)))) return ''; const r = await this.fetch(url, { headers: UA, signal: AbortSignal.timeout(10000), redirect: 'follow' }); return r.ok ? (await r.text()).slice(0, 1_500_000) : ''; };
+        let html = await page(u.href), found = parseJsonLd(html);
+        const link = re => [...html.matchAll(/href="([^"#]+)"/gi)].map(m => m[1]).find(h => re.test(h));
+        const ics = !found.length && link(/\.ics\b|[?&]ical=1|webcal:/i);
+        if (ics) { const r = await this.fetch(new URL(ics.replace(/^webcal:/, 'https:'), u).href, { headers: UA, signal: AbortSignal.timeout(10000) }).catch(() => null); if (r?.ok) found = parseIcs(await r.text(), e.lng ?? -100); }
+        const events = !found.length && link(/\/(events?|calendar|shows|whats-on|upcoming|concerts|performances|schedule)(\/|$|\?)/i);
+        if (events) { const more = await page(new URL(events, u).href); if (more) { found = parseJsonLd(more); html += more; } }
+        const today = new Date().toISOString().slice(0, 10), horizon = new Date(Date.now() + 60 * DAY).toISOString().slice(0, 10);
+        for (const x of found.filter(x => x.title && x.date >= today && x.date <= horizon).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 8)) {
+          const time = /^\d{1,2}:\d{2}$/.test(x.time || '') ? x.time.padStart(5, '0') : '';
+          const ev = this.shape({ id: `ve_${short(`${e.id}|${x.title}|${x.date}|${time}`)}`, source: `${e.short} website`, kind: 'event', category: e.category, short: x.title.slice(0, 120), venue: e.short, area: e.area, address: e.address,
+            lat: e.lat, lng: e.lng, time: when(x.date, time ? `${time}:00` : ''), localDate: x.date, startsAt: time ? `${x.date}T${time}:00` : null, price: null, priceText: x.price || 'See listing', url: x.url || site, image: x.image || e.image, description: (x.description || `At ${e.short}.`).slice(0, 300) });
+          registerEvent(ev); this.db.prepare('INSERT OR REPLACE INTO discovered_events VALUES (?,?,?)').run(ev.id, JSON.stringify(ev), Date.now()); out.events.push(ev);
+        }
+        const text = html.replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<br\s*\/?>|<\/(p|div|li|h\d)>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ');
+        const lines = [...new Set(text.split(/\n+/).map(l => l.trim()).filter(l => l.length > 12 && l.length < 260 && /(clos|season|reopen|re-open|hours|open (daily|every|year)|until|festival|pick[- ]your[- ]own|pumpkin|apple|harvest|events?|this (weekend|saturday|sunday)|tickets|holiday)/i.test(l)))];
+        out.notes.push(...lines.slice(0, 12));
+      } catch (error) { out.notes.push(`Couldn't read their website (${String(error.message).slice(0, 60)}).`); }
+    } else if (!site) out.notes.push('No website listed.');
+    this.db.prepare('INSERT OR REPLACE INTO place_checks VALUES (?,?,?)').run(k, JSON.stringify(out), Date.now());
+    return out;
+  }
+  checkText(c) {
+    return `${c.id} ${c.name}\n  Hours: ${c.hours}\n  ${c.events.length ? `Upcoming at this venue (use these ids with show_options):\n${c.events.map(x => `   ${x.id}: ${x.short} — ${x.time}${x.priceText && x.priceText !== 'See listing' ? `, ${x.priceText}` : ''}`).join('\n')}` : 'No event calendar found on their site.'}${c.notes.length ? `\n  From their site/Google: ${c.notes.join(' | ').slice(0, 1100)}` : ''}`;
   }
 
   // ---------- weather ----------
@@ -214,7 +264,7 @@ export class Discovery {
     const placey = !category || PLACE_QUERIES[category] || /eat|dinner|brunch|lunch|drink|bar|restaurant|museum|park|hike|coffee|bowling|golf|spa|climb/i.test(what) || !eventy;
     if (this.keys.ticketmaster && eventy) tasks.push(this.ticketmaster(loc, what, category, start, end).catch(e => { console.error('Ticketmaster:', e.message); return []; }));
     if (this.keys.seatgeek && eventy) tasks.push(this.seatgeek(loc, what, category, start, end).catch(e => { console.error('SeatGeek:', e.message); return []; }));
-    if (this.keys.google && placey && loc.lat != null) tasks.push(this.places(loc, what, category).catch(e => { console.error('Places:', e.message); return []; }));
+    if (this.keys.google && placey && loc.lat != null) tasks.push(this.places(loc, what, category, date).catch(e => { console.error('Places:', e.message); return []; }));
     tasks.push(this.local(loc, { what, category, start, end }));
     const seen = new Set(), out = [];
     for (const e of (await Promise.all(tasks)).flat()) {
@@ -258,21 +308,27 @@ export class Discovery {
         price: ev.stats?.lowest_price ?? null, priceText: ev.stats?.lowest_price ? `from $${ev.stats.lowest_price}` : 'See listing', age: 'See listing', url: ev.url, image: ev.performers?.[0]?.image, description: `${(ev.type || 'Event').replace(/_/g, ' ')} at ${v.name || 'a local venue'}.` });
     });
   }
-  async places(loc, what, category) {
+  async places(loc, what, category, date = '') {
     const text = `${what || PLACE_QUERIES[category] || 'fun things to do'} near ${loc.label}`;
     const r = await this.get('https://places.googleapis.com/v1/places:searchText', { method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'places.id,places.location,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.rating,places.userRatingCount,places.priceLevel,places.primaryTypeDisplayName,places.googleMapsUri,places.editorialSummary,places.currentOpeningHours.weekdayDescriptions,places.currentOpeningHours.openNow,places.photos' },
+      headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'places.id,places.location,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.rating,places.userRatingCount,places.priceLevel,places.primaryTypeDisplayName,places.googleMapsUri,places.editorialSummary,places.currentOpeningHours.weekdayDescriptions,places.currentOpeningHours.openNow,places.regularOpeningHours.weekdayDescriptions,places.businessStatus,places.websiteUri,places.photos' },
       body: JSON.stringify({ textQuery: text, maxResultCount: 8, locationBias: { circle: { center: { latitude: loc.lat, longitude: loc.lng }, radius: 15000 } } }) });
     const levels = { PRICE_LEVEL_INEXPENSIVE: '$', PRICE_LEVEL_MODERATE: '$$', PRICE_LEVEL_EXPENSIVE: '$$$', PRICE_LEVEL_VERY_EXPENSIVE: '$$$$' };
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long' });
-    return (r.places || []).map(p => {
-      const type = p.primaryTypeDisplayName?.text || 'Place', hours = p.currentOpeningHours?.weekdayDescriptions?.find(h => h.startsWith(today));
+    // Hours for the day they asked about (this week's hours include holiday/special closures); closed places are dropped.
+    const target = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`) : new Date(Date.now() + (Math.round(loc.lng / 15) + 1) * 3600000);
+    const dayName = target.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }), isToday = !date || date === new Date().toISOString().slice(0, 10);
+    const dayWord = isToday ? 'today' : dayName.slice(0, 3);
+    const list = (r.places || []).filter(p => !/CLOSED_(PERMANENTLY|TEMPORARILY)/.test(p.businessStatus || '')).map(p => {
+      const type = p.primaryTypeDisplayName?.text || 'Place';
+      const line = (p.currentOpeningHours?.weekdayDescriptions || p.regularOpeningHours?.weekdayDescriptions || []).find(h => h.startsWith(dayName));
+      const hours = line ? line.replace(`${dayName}: `, '') : null;
       return this.shape({ id: `gp_${short(p.id)}`, source: 'Google Places', kind: 'place', category: /restaurant|food|cafe|bakery|bistro|grill|pizz|sushi|taco/i.test(type) ? 'dinner' : /bar|pub|lounge|night/i.test(type) ? 'nightlife' : /museum|gallery|art/i.test(type) ? 'museums' : /park|trail|garden|beach|hik/i.test(type) ? 'nature' : type.toLowerCase(),
         lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null,
         short: p.displayName?.text || 'A local spot', venue: p.displayName?.text || 'A local spot', area: p.shortFormattedAddress || p.formattedAddress || loc.label, address: p.formattedAddress,
-        time: hours ? `Open ${hours.replace(`${today}: `, 'today ')}` : 'Check hours', price: null, priceText: levels[p.priceLevel] || 'See listing',
+        time: !hours ? 'Check hours' : /closed/i.test(hours) ? `Closed ${dayWord}` : `Open ${dayWord} ${hours}`, closedThatDay: Boolean(hours && /closed/i.test(hours)), website: p.websiteUri || null, placeId: p.id, price: null, priceText: levels[p.priceLevel] || 'See listing',
         rating: p.rating ? `${p.rating}★ (${p.userRatingCount || 0})` : null, photoRef: p.photos?.[0]?.name || null, image: p.photos?.[0]?.name ? `${this.base}/img/p/gp_${short(p.id)}` : null, age: 'See listing', url: p.googleMapsUri, description: p.editorialSummary?.text || `${type}${p.rating ? `, rated ${p.rating}★` : ''}.` });
     });
+    return date ? list.filter(e => !e.closedThatDay) : list; // asked about a specific day: skip places closed that day
   }
   async movies(loc, what, day) {
     const q = new URLSearchParams({ startDate: day, numDays: '1', lat: String(loc.lat), lng: String(loc.lng), radius: '10', units: 'mi', imageSize: 'Md', api_key: this.keys.gracenote });

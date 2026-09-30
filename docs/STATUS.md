@@ -35,7 +35,7 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - "Add to calendar" (.ics) on plan pages.
   - Contact cards texted to Rall-e are saved for invites.
   - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
-- **Tests:** 77 pass.
+- **Tests:** 78 pass.
 
 ## Open items / next
 - **Mike's list, not built (see the recommendations in chat / below):**
@@ -56,6 +56,11 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-29, "check before recommending" (Marc/Emily, Jeff's closed preserve):**
+  - `check_places` reads a venue's hours for the day, its own website calendar (schema.org events, .ics) and closure/season notes, then pitches real events (`ve_` ids).
+  - Places searches for a specific day drop venues closed that day or permanently/temporarily closed.
+  - The prompt says: events vs. venues, check seasonal spots first, never pick by rating alone.
+  - Welcome location guess skips mobile-carrier IPs (a phone in Portsmouth, NH read as Chicago).
 - **09-29, Mike's list:**
   - Weather, their own events, add-to-calendar, and contact cards by text.
   - Curated sources pipeline with Meetup/Luma ICS feeds, JSON-LD and AI page reading.

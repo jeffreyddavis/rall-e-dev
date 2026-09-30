@@ -58,7 +58,10 @@ const DISCOVERY = `Finding things to do (your first focus):
 - You need their location. If "Location" below is unknown, ask where they are (neighborhood, city or ZIP) and save it with set_location, or offer send_location_link for one-tap GPS sharing. If they mention being somewhere else ("I'm in Boston this weekend"), update it.
 - Use find_things with what they want (e.g. "live jazz", "brunch", "comedy", "something outdoors"), and a date or number of days. Tailor to their interests, dietary needs and allergies.
 - Pitch options with show_options (picture cards) plus a short intro text. Pass every option you mention (up to 8): the first 3 arrive as picture cards, and tapping any card opens a page listing all of them. If they ask for details, answer in text. When they pick one, make_plan with its id. A text like (Tapped "My pick" on X [id] on the options page) means they chose X from your cards: treat it as "let's do X" (host: make_plan or add_stop; friend: suggest) and reply briefly. A text with a rall-e.ai/e/<id> link (e.g. "Let's plan Nua (rall-e.ai/e/gp_abc)") refers to that outing id: start a plan with it (make_plan with that id; add_stop if they already have a plan going) and ask who to invite.
-- Results are live listings from Ticketmaster, SeatGeek and Google Places; availability and prices can change, and you can't buy tickets or book tables.`;
+- Results are live listings from Ticketmaster, SeatGeek, Google Places and local event calendars the team added; availability and prices can change, and you can't buy tickets or book tables.
+- Events vs. venues: Google Places results (ids gp_) are VENUES with hours, not things happening. When they ask about events, shows, markets or "what's on" for a day, or the plan is for a specific day, don't pitch a venue as if something is on there. Call check_places on the 2-3 most promising venues first (with the date): it reads each venue's own calendar and hours. Then pitch the real events it found (ids ve_) or venues confirmed open that day.
+- Seasonal and outdoor spots (farms, orchards, nature preserves, beaches, pools, markets, gardens) often close for the season or have limited days: check_places before recommending them for a specific day, and drop anything closed.
+- Never recommend something because of its star rating alone, and never recommend a place you've seen is closed that day. If you couldn't confirm, say what you checked in a few words (e.g. "their site doesn't list Saturday events") rather than "check the listings".`;
 const catalogue = () => EVENTS.map(e => `${e.id}: ${e.short} (${e.category}) at ${e.venue}, ${e.area}. ${e.time}; doors/arrival ${e.doors}; ${e.duration}; ${e.price ? `$${e.price}/person sample` : 'free'}; ${e.age}; access: ${e.accessibility} ${e.description}`).join('\n');
 
 export class Agent {
@@ -133,6 +136,7 @@ export class Agent {
       T('set_location', 'Save where they are (neighborhood, city or ZIP) for finding things nearby.', { place: { type: 'string' } }, ['place']),
       T('show_options', 'Show options as picture cards after your text. Pass EVERY option you mention in your text (up to 8), best first: the first 3 arrive as picture cards (one message each, with a photo preview) and tapping any card opens a page listing all of them with details and My pick.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 } }, ['event_ids']),
       T('send_location_link', 'Text them a one-tap link to share their current location from their phone.'),
+      T('check_places', 'Before recommending venues (places from find_things, especially for a specific day, events/shows, or anything seasonal like farms, orchards, preserves, markets, pools): check up to 3 of them. Returns their hours that day, real upcoming events from their own website calendar (with ids you can show), and notes from their site such as "closed for the season".', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 3 }, date: { type: 'string', description: 'YYYY-MM-DD of the day they care about, if any' } }, ['event_ids']),
       T('get_weather', 'The forecast where they are (about 7 days, US only). Use when they ask about weather, or when planning outdoor things or their week, to steer toward good days (indoor ideas if it will rain).')] : [];
     const common = [
       T('log_gap', 'Call this whenever you tell them you can\'t do something they asked, or something you tried failed or found nothing useful. It helps the team fix it. Give a short snake_case category (e.g. book_or_buy_tickets, prices_unavailable, no_results, movie_showtimes, unsupported_city, restaurant_reservations, weather, rides, other) and a one-line example of what they asked with NO names, phone numbers, emails, addresses or other personal details (e.g. "wants tickets bought for a comedy show Saturday").', { category: { type: 'string' }, example: { type: 'string' } }, ['category', 'example']),
@@ -220,6 +224,13 @@ export class Agent {
         this.pendingCards.set(phone, ids); stats.bump('option_sets_sent', 1, phone); stats.bump('options_shown', ids.length, phone);
         const cards = Math.min(ids.length, 3);
         return `${cards} picture card(s) will follow your text, one per message${ids.length > 3 ? `, and tapping any of them opens a page with all ${ids.length} options` : ''}. Keep your text to a short intro and don't repeat links.${ids.length > 3 ? ' Don\'t say only some are coming or offer to send the rest: the page already has them all.' : ''}`;
+      }
+      if (name === 'check_places') {
+        const list = [...new Set(input.event_ids || [])].slice(0, 3).map(id => eventById(id)).filter(e => e && e.kind === 'place');
+        if (!list.length) return 'Error: check_places works on places (ids starting gp_) from find_things.';
+        const checks = await Promise.all(list.map(e => Promise.race([this.discovery.checkPlace(e, input.date || ''), new Promise(r => setTimeout(() => r({ id: e.id, name: e.short, hours: e.time, events: [], notes: ['(Check timed out.)'] }), 15000))])));
+        stats.bump('place_checks', list.length, phone);
+        return `${checks.map(c => this.discovery.checkText(c)).join('\n')}\nOnly recommend what this supports. Prefer real events you found; drop places that are closed that day or for the season, and say so briefly if it matters.`;
       }
       if (name === 'get_weather') {
         const loc = this.discovery.location(phone); if (!loc) return 'Error: location unknown. Ask where they are first.';
