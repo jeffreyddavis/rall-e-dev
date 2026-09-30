@@ -40,7 +40,6 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
 
 ## Open items / next
 - **Agent memory:** Phase 2 next (nightly consolidation, episodes, recall search), then Phase 3. See `docs/MEMORY.md`.
-- **Slow links / webhook timeouts:** root cause found. The shared Apache runs prefork with `MaxRequestWorkers 4`, so TLS handshakes queue (4–26 s from outside while the app answers in ~1 ms). Fix: raise the worker limit (e.g. 40). Needs Jeff's OK since MacroFit shares the server.
 - **Mike's list, not built (see the recommendations in chat / below):**
   - Google Calendar sign-in (OAuth: testing mode is fine for testers; production needs Google verification). Gmail is not recommended (restricted scope needs a paid CASA security assessment).
   - Storing third-party logins for booking: not recommended. Use the Stripe card + partner booking APIs instead.
@@ -59,6 +58,8 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-30, "text until they decide" (Marc):** suggestions stay in the text, with no cards or pages, until the host decides. Then `make_plan` returns the plan page link, which the agent sends. `show_options` is only used when someone asks for photos or a list page. Feature pitches no longer push option cards.
+- **09-30, faster pages:** the shared Apache (prefork, which MacroFit's mod_php needs) went from 4 to 40 workers, and KeepAliveTimeout from 5 s to 2 s. Backups are `*.bak-<stamp>` next to `mpm_prefork.conf` and `apache2.conf`. 20 parallel requests now all finish within about 1.3 s. Switching to the event MPM would mean moving MacroFit to php-fpm.
 - **09-30, memory Phase 1 + bug fixes:**
   - Memory: `server/memory.mjs` (tables `memory_facts`, `memory_signals`, `memory_meta`). Facts are said or inferred (inferred ones fade after 90 days), capped at 60 per person; the card is capped at 800 characters. Picks, votes, RSVPs and outings become signals. Old preference counters were migrated. Wipes remove memory.
   - No more Saturday default: "this weekend" searches Friday through Sunday (`find_things` has `end_date`), and movie results alternate days.

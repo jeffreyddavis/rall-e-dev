@@ -59,7 +59,7 @@ test('the agent plans by text through tools, sends a contact card, and only invi
 test('guests talk to the agent; group notifications stay deterministic; failures fall back to keywords', async () => {
   const t = setup([
     tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
-    tool('make_plan', { event_id: 'dinner' }), say('Dinner at Casa Vera it is. Who is coming?'),
+    tool('make_plan', { event_id: 'dinner' }), body => { assert.match(body.messages.at(-1).content[0].content, /plan page[^\n]*\/n\/[\w-]+/); return say('Dinner at Casa Vera it is. Who is coming?'); },
     tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }, { name: 'Dave', phone: '3105550103' }] }), say('Both invited!'),
     body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
     say('You’re in! See you Saturday.'),

@@ -2,9 +2,9 @@
 // `pitch` is how Rall-e would describe it in a text; `operator` is the instruction a demo trigger gives the agent.
 export const FEATURES = [
   { id: 'things_to_do', label: 'Things to do nearby', pitch: 'finding real events, restaurants and bars near them, with a page of the options',
-    operator: 'Show them 2–3 great, specific options near them for tonight or this weekend (find_things, then show_options), tailored to what you know about them. One short intro line.' },
+    operator: 'Show them 2–3 great, specific options near them for tonight or this weekend (find_things, then list them in your text), tailored to what you know about them. Ask which sounds good.' },
   { id: 'showtimes', label: 'Movie showtimes', pitch: 'real movie showtimes at theaters near them',
-    operator: 'Show off live movie showtimes: find_things with category movies for tonight (or tomorrow if it is late where they are), pick 2–3 good options with evening times and show_options. Mention they can pick one and you will plan it with friends.' },
+    operator: 'Show off live movie showtimes: find_things with category movies for tonight (or tomorrow if it is late where they are), list 2–3 good options with times in your text. Mention they can pick one and you will plan it with friends.' },
   { id: 'plan_friends', label: 'Plan it with friends', pitch: 'turning an idea into a plan: they name who to invite and you text everyone and track who is in',
     operator: 'Offer to turn what they are into (or their last idea) into a plan with friends: they just tell you who to invite and you text everyone, track RSVPs and keep the group posted. Ask who they would bring.' },
   { id: 'evening_view', label: 'Plan page', pitch: 'a page with the whole plan: every stop, who is in, and ideas the group can pick',
@@ -14,7 +14,7 @@ export const FEATURES = [
   { id: 'group_chat', label: 'Group messages', pitch: 'private texts by default, and "tell the group…" to message everyone on the plan',
     operator: 'Explain in one or two lines that texts to you are private, and starting a text with "tell the group" sends it to everyone on the plan (their friends see it labeled as the group).' },
   { id: 'my_pick', label: 'My pick voting', pitch: 'tapping My pick on options so you and the group can decide quickly',
-    operator: 'Point out that on the option cards and their plan page they can tap "My pick", and the group sees who picked what, so deciding takes seconds.' },
+    operator: 'Point out that on their plan page they can tap "My pick", and the group sees who picked what, so deciding takes seconds.' },
   { id: 'vault', label: 'Secure vault', pitch: 'a secure place for dietary needs, allergies and loyalty numbers so bookings go smoothly',
     operator: 'Offer the secure vault for dietary needs, allergies, loyalty numbers and contact details so future bookings are smooth. If it fits, send_secure_link.' },
   { id: 'location', label: 'One-tap location', pitch: 'sharing their location with one tap so suggestions are nearby',
@@ -24,7 +24,7 @@ export const FEATURES = [
   { id: 'profile_photo', label: 'Profile photo', pitch: 'adding a profile photo by texting one, so friends see their face on plan pages',
     operator: 'Suggest they add a profile photo so friends see their face on plan pages: they can just text you a photo, or use their page (get_my_page). One or two lines.' },
   { id: 'weather', label: 'Weather-aware plans', pitch: 'checking the forecast so plans fit the weather',
-    operator: 'Check get_weather for where they are and suggest one or two things that fit the next few days\' weather (find_things + show_options if useful). Keep it short.' },
+    operator: 'Check get_weather for where they are and suggest one or two things that fit the next few days\' weather (find_things, listed in your text). Keep it short.' },
   { id: 'own_event', label: 'Host their own event', pitch: 'creating their own event (a BBQ, game night, a picnic) and inviting friends to it',
     operator: 'Tell them they can plan their own thing too, like a BBQ, game night or picnic: they just say what, when and where, and you make the plan and invite everyone. One or two lines.' },
   { id: 'group_vote', label: 'Group vote', pitch: 'letting the group vote on options (pick one, rank them, or leave it to the host) with a link for each friend',
@@ -36,6 +36,7 @@ export const featureById = id => FEATURES.find(f => f.id === id);
 
 // Which tool use counts as having shown which feature.
 export function featureForTool(name, input = {}) {
+  if (name === 'find_things') return input.category === 'movies' ? 'showtimes' : 'things_to_do';
   if (name === 'show_options') return (input.event_ids || []).some(id => String(id).startsWith('mv_')) ? 'showtimes' : 'things_to_do';
   return { start_poll: 'group_vote', get_weather: 'weather', create_event: 'own_event', get_invite_link: 'invites', set_profile_photo: 'profile_photo', get_my_page: 'profile_photo', get_links: 'evening_view', get_my_link: 'evening_view', send_secure_link: 'vault', save_details: 'vault', send_location_link: 'location',
     react: 'reactions', message_group: 'group_chat', invite: 'plan_friends', make_plan: 'plan_friends' }[name] || null;
