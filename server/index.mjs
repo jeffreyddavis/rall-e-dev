@@ -357,7 +357,7 @@ const server = http.createServer(async (req, res) => {
     res.end(await readFile(path));
   } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); sms.sources.schedule(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); sms.sources.schedule(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
 // Deploys restart the service: stop taking requests, finish texts already being handled (up to 25 s), then exit.
 let stopping = false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => {

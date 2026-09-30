@@ -35,7 +35,7 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - "Add to calendar" (.ics) on plan pages.
   - Contact cards texted to Rall-e are saved for invites.
   - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
-- **Tests:** 81 pass.
+- **Tests:** 82 pass.
 
 ## Open items / next
 - **Mike's list, not built (see the recommendations in chat / below):**
@@ -60,6 +60,7 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - The agent knows each person's local time (time zone from NWS, else longitude). Their texts carry send times (`[Tue 5:37 PM]`).
   - Plans get a saved day/time (`set_plan_time`, inferred from "today"/"Saturday") and progress (`mark_progress`).
   - The situation line says upcoming / underway / probably over / past. Guidance: don't anchor future questions or feature demos on a finished plan; use a placeholder "Next outing" instead.
+  - Plans still open are closed automatically as happened at 5 AM (their time) the morning after their saved day. On the day itself the agent judges (`TextFlow.closeFinished`, hourly).
   - The default plan title is "Your next outing" (was "A little Saturday adventure", which made the agent assume Saturday).
 - **09-30, group polls (Donovan's design):**
   - `start_poll` agent tool; `/q/<token>` pages with Pick one (default) / Rank these (drag: the card lifts and follows your finger, numbers update live; arrow keys work too) / Your call (tapping it casts the vote right away).

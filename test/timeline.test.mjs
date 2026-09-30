@@ -25,3 +25,19 @@ test('plan timing: upcoming, underway, probably over tonight, and past', () => {
   assert.match(planTiming({ plan: { status: 'proposed', stops: ['tm_timeline1'], participants: [] } }, at('2026-09-30T15:00:00Z')), /Fri, Oct 2 around 19:30.*from its stops/);
   assert.match(planTiming(plan(day, { status: 'happened' }), at('2026-09-29T14:00:00Z')), /over \(marked as happened\)/);
 });
+
+test('plans close automatically the morning after their day, not the same night', async () => {
+  const { Store } = await import('../server/store.mjs'), { Sms } = await import('../server/sms.mjs'), { EVENTS } = await import('../server/catalog.mjs');
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai' }, { messages: { create: async () => ({}) } });
+  const PHONE = '+12315550199';
+  const { id, state } = store.create('Jeff'), digest = store.digestOf(id); sms.flow.link(PHONE, digest, state, 'host');
+  sms.discovery.saveLocation(PHONE, { label: 'Harbor Springs, MI', lat: 45.43, lng: -84.99 });
+  store.hostAction(id, 'location'); store.hostAction(id, 'vibe', { category: 'nature' }); store.hostAction(id, 'accept', { eventId: EVENTS[0].id });
+  const cur = store.load(digest); cur.plan.when = { date: '2026-09-29', time: '', basis: 'they said it' }; store.persist(digest, cur);
+  assert.equal(sms.flow.closeFinished(Date.parse('2026-09-30T03:30:00Z')), 0); // 11:30 PM the same night: leave it
+  assert.equal(sms.flow.closeFinished(Date.parse('2026-09-30T08:00:00Z')), 0); // 4 AM: still too early
+  assert.equal(sms.flow.closeFinished(Date.parse('2026-09-30T10:00:00Z')), 1); // 6 AM next morning
+  assert.equal(store.load(digest).plan.status, 'happened');
+  store.close();
+});

@@ -9,6 +9,7 @@ import { scrubCards } from './vault.mjs';
 import { stats } from './stats.mjs';
 import { legText } from './discovery.mjs';
 import { parseVcards } from './photos.mjs';
+import { planWhen, localNow } from './timeline.mjs';
 const isCard = m => /vcard|x-vcard|text\/directory/i.test(m?.type || '') || /\.vcf(\?|$)/i.test(m?.url || '');
 
 const VIBES = [['1', 'dinner', 'Dinner'], ['2', 'live shows', 'Live shows'], ['3', 'museums', 'Museums & art'], ['4', 'nature', 'Outdoors']];
@@ -154,6 +155,24 @@ export class TextFlow {
     const service = this.sms.lastIn?.get(phone)?.service;
     if (this.sms.lastLine(phone) === 'sendblue') return service !== 'RCS' && service !== 'iMessage' && this.sms.phoneService(phone)?.service === 'SMS'; // RCS draws link previews itself
     return this.sms.phoneService(phone)?.service === 'SMS' || service === 'SMS' || this.sms.sendblueRefused?.has(phone);
+  }
+  // The morning after a plan's day (5 AM their time), a plan still open is closed out as happened: pages lock, anything new
+  // goes to a fresh plan, and preferences learn from it. During the day itself the agent uses judgment instead.
+  closeFinished(now = Date.now()) {
+    let closed = 0;
+    for (const row of this.db.prepare("SELECT id, state FROM sessions WHERE state LIKE '%\"status\":\"proposed\"%' OR state LIKE '%\"status\":\"confirmed\"%'").all()) {
+      try {
+        const s = JSON.parse(row.state), p = s.plan; if (!['proposed', 'confirmed'].includes(p.status) || !p.stops.length) continue;
+        const w = planWhen(p); if (!w?.date) continue;
+        const phone = this.hostPhone(row.id), loc = phone && this.sms.discovery.location(phone), local = localNow(this.sms.discovery.tzOf ? this.sms.discovery.tzOf(loc) : 'America/New_York', now);
+        if (!(w.date < local.date && local.hour >= 5)) continue;
+        if (p.status === 'proposed') { const cur = this.store.load(row.id); cur.plan.status = 'confirmed'; this.store.persist(row.id, cur); }
+        this.store.hostActionAt(row.id, 'happened', {}, { via: 'auto' }); closed++;
+        console.log(`Closed a finished plan (${w.date}) for ••• ${String(phone || '').slice(-4) || 'web'}`);
+      } catch (error) { console.error('Auto-close:', error.message); }
+    }
+    if (closed) stats.bump('plans_auto_closed', closed);
+    return closed;
   }
   // ---------- joining a shared night ----------
   hostPhone(digest) { return this.db.prepare("SELECT phone FROM sms_threads WHERE digest=? AND role='host' ORDER BY updated DESC").get(digest)?.phone || ''; }

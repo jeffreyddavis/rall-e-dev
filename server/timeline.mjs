@@ -39,7 +39,7 @@ export function planTiming(s, now) {
   const d = days(w.date, now.date), at = w.time ? ` around ${w.time}` : '';
   const when = d === 0 ? `today${at}` : d === 1 ? `tomorrow${at}` : d === -1 ? `yesterday${at}` : d > 0 ? `${niceDate(w.date)}${at} (in ${d} days)` : `${niceDate(w.date)} (${-d} days ago)`;
   let verdict;
-  if (d < 0) verdict = 'It is in the past, so it almost certainly happened: treat it as done (mark_happened when it comes up, or ask how it went), and plan anything new as a new outing.';
+  if (d < 0) verdict = 'It is in the past, so it almost certainly happened (it closes automatically the morning after): treat it as done, and plan anything new as a new outing.';
   else if (d > 0) verdict = 'It is upcoming.';
   else if (p.progress?.status === 'underway') verdict = `It is underway right now (they're out doing it).`;
   else if (w.time && now.time < w.time) verdict = 'It is later today.';
