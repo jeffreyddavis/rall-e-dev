@@ -105,6 +105,11 @@ Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
   - **It must not reveal that operator features exist**, not even on the login page. Operator-only API routes return 404 to viewers.
 - **Follow-ups to a tester:** use `POST /api/ops/nudge {phone, note}` with an instruction. The agent then writes the text in its own voice. Get Jeff's OK before texting testers on his behalf.
 
+## Product principles
+- **Promote features that solve the problem.** When what someone says is exactly what a feature handles, Rall-e offers it right away (need-based offers aren't throttled like unprompted tips).
+  - Example: a host unsure what the group wants → offer a group vote (`start_poll`).
+  - Keep that mapping in the agent prompt ("Answering a need") and in `server/features.mjs` when adding features.
+
 ## Rules (non-negotiable)
 1. Never paste secrets in chat, Slack, commits, docs or logs. Show only the last 4 digits of phone numbers in logs.
 2. Only opted-in or allowlisted people get texts. Never text someone because a host provided their number.

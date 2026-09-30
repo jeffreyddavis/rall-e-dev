@@ -27,6 +27,8 @@ export const FEATURES = [
     operator: 'Check get_weather for where they are and suggest one or two things that fit the next few days\' weather (find_things + show_options if useful). Keep it short.' },
   { id: 'own_event', label: 'Host their own event', pitch: 'creating their own event (a BBQ, game night, a picnic) and inviting friends to it',
     operator: 'Tell them they can plan their own thing too, like a BBQ, game night or picnic: they just say what, when and where, and you make the plan and invite everyone. One or two lines.' },
+  { id: 'group_vote', label: 'Group vote', pitch: 'letting the group vote on options (pick one, rank them, or leave it to the host) with a link for each friend',
+    operator: 'Offer to let their group vote on the options so they don\'t have to guess what everyone wants: if they have friends on a plan and a few options, offer start_poll in one or two lines (or start it if they already asked).' },
   { id: 'reactions', label: 'Emoji reactions', pitch: 'reacting to texts with emoji',
     operator: 'React to their latest message with a fitting emoji (react) and mention in a few words that they can react to your texts too and you will understand.' }
 ];
@@ -35,7 +37,7 @@ export const featureById = id => FEATURES.find(f => f.id === id);
 // Which tool use counts as having shown which feature.
 export function featureForTool(name, input = {}) {
   if (name === 'show_options') return (input.event_ids || []).some(id => String(id).startsWith('mv_')) ? 'showtimes' : 'things_to_do';
-  return { get_weather: 'weather', create_event: 'own_event', get_invite_link: 'invites', set_profile_photo: 'profile_photo', get_my_page: 'profile_photo', get_links: 'evening_view', get_my_link: 'evening_view', send_secure_link: 'vault', save_details: 'vault', send_location_link: 'location',
+  return { start_poll: 'group_vote', get_weather: 'weather', create_event: 'own_event', get_invite_link: 'invites', set_profile_photo: 'profile_photo', get_my_page: 'profile_photo', get_links: 'evening_view', get_my_link: 'evening_view', send_secure_link: 'vault', save_details: 'vault', send_location_link: 'location',
     react: 'reactions', message_group: 'group_chat', invite: 'plan_friends', make_plan: 'plan_friends' }[name] || null;
 }
 
