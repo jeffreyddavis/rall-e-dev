@@ -122,6 +122,7 @@ Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
 8. Don't copy the unrelated "Backend" `.env` into this project.
 
 ## Other docs
+- `docs/MEMORY.md`: proposed architecture for agent memory (per-person facts, episodes, crews, general learning).
 - `docs/STATUS.md`: live state, change log, open items (updated every round).
 - `ops/TWILIO_SETUP.md`, `ops/VAULT.md`, `ops/DEPLOYMENT_STATUS.md`: setup history and details (older; STATUS.md wins when they disagree).
 - `PROTOTYPE_SCOPE.md`: the original scope. `README.md`: the original web demo walkthrough.

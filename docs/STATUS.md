@@ -38,6 +38,7 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
 - **Tests:** 82 pass.
 
 ## Open items / next
+- **Agent memory:** proposal in `docs/MEMORY.md`; waiting on Jeff's decisions, then Phase 1.
 - **Mike's list, not built (see the recommendations in chat / below):**
   - Google Calendar sign-in (OAuth: testing mode is fine for testers; production needs Google verification). Gmail is not recommended (restricted scope needs a paid CASA security assessment).
   - Storing third-party logins for booking: not recommended. Use the Stripe card + partner booking APIs instead.
