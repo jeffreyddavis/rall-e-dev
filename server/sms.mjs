@@ -73,7 +73,8 @@ export class Sms {
     this.invites = new Invites(this, env);
     this.photos = new Photos(this, env, fetchImpl);
     this.sources = new Sources(this, env, fetchImpl); this.discovery.curated = this.sources;
-    this.lastMedia = new Map(); // phone -> the latest photo they texted { url, type, at }
+    this.lastMedia = new Map();
+    this.labPhones = new Set(); // fictional 555 phones the presenter is playing in /lab (replies are recorded, never sent) // phone -> the latest photo they texted { url, type, at }
     // Plan pages show people's profile photos: find the phone behind a host (participant '') or a friend on a plan.
     store.photoOf = (s, participant = '') => { const r = this.db.prepare("SELECT phone FROM sms_threads WHERE plan=? AND " + (participant ? 'participant=?' : "role='host'") + ' LIMIT 1').get(...(participant ? [s.id, participant] : [s.id])); return r ? this.photos.urlFor(r.phone) : null; };
   }
@@ -176,7 +177,7 @@ export class Sms {
   isStopped(number) { return Boolean(this.db.prepare('SELECT phone FROM sms_stopped WHERE phone=?').get(number)); }
   normalize(value) { return normalize(value); }
   // In live mode only approved testers may start a plan by texting in; preview/lab mode is unrestricted (nothing is sent).
-  canStart(phone) { return !this.live || this.allowed.has(phone); }
+  canStart(phone) { return !this.live || this.allowed.has(phone) || this.labPhones.has(phone); } // the presenter lab works in live mode too (nothing is sent)
   log(phone, direction, body, { sid = null, kind = 'reply', status = 'received' } = {}) {
     const id = randomUUID();
     this.db.prepare('INSERT INTO sms_log(id,phone,direction,body,kind,created,status,sid) VALUES(?,?,?,?,?,?,?,?)').run(id, phone, direction, body, kind, Date.now(), status, sid);
@@ -201,7 +202,7 @@ export class Sms {
     const since = Date.now() - 86400000;
     let status = 'queued-local', error = null;
     if (this.isStopped(phone)) { status = 'blocked'; error = 'opted-out'; }
-    else if (!this.live) status = 'preview';
+    else if (!this.live || this.labPhones.has(phone)) status = 'preview'; // phones played in the presenter lab are never really texted
     else if (!this.allowed.has(phone) && !optInCode) { status = 'blocked'; error = 'not-a-tester'; }
     else if (this.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE direction='out' AND sid IS NOT NULL AND created>?").get(since).n + this.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE status='queued-local'").get().n >= this.conversationLimit) { status = 'blocked'; error = 'daily-limit'; }
     else if (this.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE direction='out' AND phone=? AND status NOT IN ('preview','blocked') AND created>?").get(phone, since).n >= this.perRecipientLimit) { status = 'blocked'; error = 'recipient-limit'; }
@@ -263,6 +264,7 @@ export class Sms {
   labPhone(value) { const phone = normalize(value); if (!/^\+1\d{3}555\d{4}$/.test(phone)) fail(400, 'Lab phones must be fictional 555 numbers, such as +13105550101.'); return phone; }
   async simulate(from, body) {
     const phone = this.labPhone(from), text = typeof body === 'string' ? body.trim() : '';
+    this.labPhones.add(phone);
     if (!text || text.length > 640) fail(400, 'Type a text between 1 and 640 characters.');
     const before = Date.now();
     await this.flow.enqueue(phone, text);
