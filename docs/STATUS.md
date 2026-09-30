@@ -1,6 +1,6 @@
 # Rall-e status
 
-_Last updated: 2026-09-29 (evening). Update this file with every round of work (see AGENTS.md)._
+_Last updated: 2026-09-30. Update this file with every round of work (see AGENTS.md)._
 
 ## Live state
 - **Site:** https://rall-e.ai. It's the texting prototype in LIVE mode for testers and people who opted in. Web signup and share pages are public.
@@ -35,10 +35,12 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
   - "Add to calendar" (.ics) on plan pages.
   - Contact cards texted to Rall-e are saved for invites.
   - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
-- **Tests:** 82 pass.
+- **Agent memory (Phase 1, 09-30):** per-person facts + behavior signals, a small "what I know" card in each turn, `remember`/`forget`/`what_i_know` tools, and "What Rall-e knows" on `/me/` (delete per fact). See `docs/MEMORY.md`.
+- **Tests:** 85 pass.
 
 ## Open items / next
-- **Agent memory:** proposal in `docs/MEMORY.md`; waiting on Jeff's decisions, then Phase 1.
+- **Agent memory:** Phase 2 next (nightly consolidation, episodes, recall search), then Phase 3. See `docs/MEMORY.md`.
+- **Slow links / webhook timeouts:** root cause found. The shared Apache runs prefork with `MaxRequestWorkers 4`, so TLS handshakes queue (4–26 s from outside while the app answers in ~1 ms). Fix: raise the worker limit (e.g. 40). Needs Jeff's OK since MacroFit shares the server.
 - **Mike's list, not built (see the recommendations in chat / below):**
   - Google Calendar sign-in (OAuth: testing mode is fine for testers; production needs Google verification). Gmail is not recommended (restricted scope needs a paid CASA security assessment).
   - Storing third-party logins for booking: not recommended. Use the Stripe card + partner booking APIs instead.
@@ -57,6 +59,10 @@ _Last updated: 2026-09-29 (evening). Update this file with every round of work (
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-30, memory Phase 1 + bug fixes:**
+  - Memory: `server/memory.mjs` (tables `memory_facts`, `memory_signals`, `memory_meta`). Facts are said or inferred (inferred ones fade after 90 days), capped at 60 per person; the card is capped at 800 characters. Picks, votes, RSVPs and outings become signals. Old preference counters were migrated. Wipes remove memory.
+  - No more Saturday default: "this weekend" searches Friday through Sunday (`find_things` has `end_date`), and movie results alternate days.
+  - Fewer links (Mike): options are laid out in the text itself, with one picture card after it (was one card per option). MMS says "(+N more)".
 - **09-30, time awareness:**
   - The agent knows each person's local time (time zone from NWS, else longitude). Their texts carry send times (`[Tue 5:37 PM]`).
   - Plans get a saved day/time (`set_plan_time`, inferred from "today"/"Saturday") and progress (`mark_progress`).

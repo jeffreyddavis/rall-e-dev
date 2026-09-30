@@ -25,7 +25,7 @@ export class Polls {
     const ids = [...new Set(eventIds || [])].filter(id => eventById(id)).slice(0, 8);
     if (ids.length < 2) fail(400, 'Error: a poll needs at least 2 options (ids from find_things).');
     if (!p.participants.length) fail(409, 'Error: nobody is on the plan yet. Invite friends first, then start the poll.');
-    const id = token(), name = clean(title || '', 60) || p.title;
+    const id = token(), name = String(title || '').trim().slice(0, 60) || p.title;
     this.db.prepare('UPDATE polls SET closed=? WHERE plan=? AND closed IS NULL').run(Date.now(), s.id); // one open poll per plan
     this.db.prepare('INSERT INTO polls VALUES (?,?,?,?,?,?,?,NULL)').run(id, t.digest, s.id, name, s.name, JSON.stringify(ids), Date.now());
     const add = (participant, who) => { const tk = token(); this.db.prepare('INSERT INTO poll_people VALUES (?,?,?,?)').run(tk, id, participant, who); return tk; };
@@ -80,6 +80,9 @@ export class Polls {
     const first = !this.db.prepare('SELECT 1 FROM poll_answers WHERE poll=? AND participant=?').get(me.poll, me.participant);
     this.db.prepare('INSERT OR REPLACE INTO poll_answers VALUES (?,?,?,?,?,?)').run(me.poll, me.participant, mode, mode === 'pick' ? pick : null, order ? JSON.stringify(order) : null, Date.now());
     stats.bump(`poll_${mode}`, 1, me.participant || 'host');
+    const who = me.participant ? this.db.prepare('SELECT phone FROM sms_threads WHERE digest=? AND plan=? AND participant=?').get(me.digest, me.plan, me.participant)?.phone : this.sms.flow.hostPhone?.(me.digest);
+    if (mode === 'pick') this.sms.memory?.signal(who, 'voted', eventById(pick)?.category, 1);
+    if (mode === 'rank') this.sms.memory?.signal(who, 'ranked_first', eventById(order[0])?.category, 0.7);
     if (me.participant !== '') this.tellHost(me, mode === 'pick' ? `picked ${eventById(pick).short}` : mode === 'rank' ? `ranked them (#1: ${eventById(order[0]).short})` : `is happy with whatever you pick`, first);
     return this.view(tk);
   }

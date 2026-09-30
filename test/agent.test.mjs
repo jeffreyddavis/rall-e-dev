@@ -61,7 +61,7 @@ test('guests talk to the agent; group notifications stay deterministic; failures
     tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
     tool('make_plan', { event_id: 'dinner' }), say('Dinner at Casa Vera it is. Who is coming?'),
     tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }, { name: 'Dave', phone: '3105550103' }] }), say('Both invited!'),
-    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
+    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
     say('You’re in! See you Saturday.'),
     tool('message_group', { text: 'I can drive if anyone needs a ride' }), say('Passed that along to the group.'),
     new Error('network down')
@@ -128,15 +128,15 @@ test('a feature that answers a need is queued while they are mid-setup, then off
   t.store.close();
 });
 
-test('show_options with more than 3 picks: 3 preview cards, and every card opens a list with all of them', async () => {
+test('show_options: one preview card (text does the talking), and it opens a list with all of them', async () => {
   const t = setup([
     tool('start_account', { first_name: 'Mike' }), say('Hi Mike!'),
-    tool('show_options', { event_ids: ['museum', 'trail', 'dinner', 'comedy', 'rooftop'] }), body => { assert.match(body.messages.at(-1).content[0].content, /3 picture card.*all 5 options/); return say('Here are five ideas for Saturday.'); }
+    tool('show_options', { event_ids: ['museum', 'trail', 'dinner', 'comedy', 'rooftop'] }), body => { assert.match(body.messages.at(-1).content[0].content, /One picture card.*all 5 options/); return say('Here are five ideas for Saturday.'); }
   ]);
   await t.text(HOST, 'hi I am Mike');
   await t.text(HOST, 'give me 5 things to do saturday');
   const links = t.out(HOST, 'option').map(r => r.body);
-  assert.equal(links.length, 3);
+  assert.equal(links.length, 1);
   const set = /\?s=([\w-]+)/.exec(links[0])[1];
   assert.deepEqual(t.sms.flow.options(set).ids, ['museum', 'trail', 'dinner', 'comedy', 'rooftop']);
   t.store.close();

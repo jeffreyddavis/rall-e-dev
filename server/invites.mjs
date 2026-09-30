@@ -67,11 +67,11 @@ export class Invites {
   recordJoin(code, invitee, name) {
     const l = this.lookup(code);
     if (l.owner === invitee || this.db.prepare('SELECT 1 FROM invite_uses WHERE invitee=?').get(invitee)) return false;
-    this.db.prepare('INSERT INTO invite_uses VALUES (?,?,?,?,?)').run(invitee, code, l.owner, clean(name || '', 40) || null, Date.now());
+    this.db.prepare('INSERT INTO invite_uses VALUES (?,?,?,?,?)').run(invitee, code, l.owner, (String(name || '').trim().slice(0, 40) || null), Date.now());
     this.db.prepare('UPDATE waitlist SET joined=? WHERE phone=?').run(Date.now(), invitee);
     stats.bump('invite_joins', 1, invitee);
     const used = this.used(l.owner), quota = this.quota(l.owner);
-    this.sms.flow.reply(l.owner, `Rall-e: ${clean(name || '', 40) || 'Someone'} just joined Rall-e with your invite! ${used} of ${quota} invites used.`, 'invite_joined');
+    this.sms.flow.reply(l.owner, `Rall-e: ${String(name || '').trim().slice(0, 40) || 'Someone'} just joined Rall-e with your invite! ${used} of ${quota} invites used.`, 'invite_joined');
     return true;
   }
 
@@ -91,7 +91,7 @@ export class Invites {
   view(phone) {
     const joins = this.db.prepare('SELECT code, name, at FROM invite_uses WHERE owner=? ORDER BY at DESC').all(phone);
     if (!this.links(phone).length) this.create(phone);
-    return { name: this.nameOf(phone), photo: this.sms.photos?.urlFor(phone) || null, quota: this.quota(phone), used: joins.length,
+    return { name: this.nameOf(phone), photo: this.sms.photos?.urlFor(phone) || null, memory: this.sms.memory?.list(phone) || [], quota: this.quota(phone), used: joins.length,
       links: this.links(phone).map(l => ({ code: l.code, url: this.url(l.code), label: l.label, joins: joins.filter(j => j.code === l.code).length })),
       joined: joins.map(j => ({ name: j.name || 'A friend', at: j.at })) };
   }
@@ -99,7 +99,7 @@ export class Invites {
   // ---------- waitlist ----------
   joinWaitlist(phone, name, source = 'web') {
     if (!phone || !/^\+1\d{10}$/.test(phone)) fail(400, 'Enter a US mobile number, like (555) 123-4567.');
-    const first = clean(name || '', 40); if (!first) fail(400, 'Please enter your first name.');
+    const first = String(name || '').trim().slice(0, 40); if (!first) fail(400, 'Please enter your first name.');
     if (this.member(phone)) return { member: true };
     const fresh = this.db.prepare('INSERT OR IGNORE INTO waitlist (phone, name, at, source) VALUES (?,?,?,?)').run(phone, first, Date.now(), clean(source, 40)).changes;
     if (fresh) stats.bump('waitlist_joins', 1, phone);

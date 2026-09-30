@@ -256,16 +256,20 @@ export class Discovery {
   }
 
   // ---------- search ----------
-  async search(loc, { what = '', category = '', days = 7, date = '' } = {}) {
+  async search(loc, { what = '', category = '', days = 7, date = '', end_date = '' } = {}) {
     if (!loc) fail(400, 'I need to know where they are first.');
-    const start = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T00:00:00Z`).getTime() : Date.now();
-    const end = date ? start + DAY : Date.now() + Math.min(Math.max(Number(days) || 7, 1), 30) * DAY;
+    const ok = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+    const start = ok(date) ? new Date(`${date}T00:00:00Z`).getTime() : Date.now();
+    // A range ("this weekend" = Fri–Sun) searches every day in it; a single date searches that day.
+    const last = ok(end_date) && end_date >= (ok(date) ? date : '') ? new Date(`${end_date}T00:00:00Z`).getTime() : null;
+    const end = last ? Math.min(last + DAY, start + 31 * DAY) : ok(date) ? start + DAY : Date.now() + Math.min(Math.max(Number(days) || 7, 1), 30) * DAY;
+    const range = last ? { from: new Date(start).toISOString().slice(0, 10), to: new Date(end - DAY).toISOString().slice(0, 10) } : null;
     const tasks = [];
     // Movies: real showtimes from Gracenote (theaters near them, what's playing, when). Without it, Places only finds theaters.
     const movie = category === 'movies' || /\b(movies?|films?|cinema|showtimes?|imax|matinee)\b/i.test(what);
     if (movie && loc.lat != null && (this.keys.gracenote || (this.keys.serp && this.keys.google))) {
       const day = date || '';
-      const found = await (this.keys.gracenote ? this.movies(loc, what, day || new Date(start).toISOString().slice(0, 10)) : this.serpMovies(loc, what, day))
+      const found = await (this.keys.gracenote ? this.movies(loc, what, day || new Date(start).toISOString().slice(0, 10)) : this.serpMovies(loc, what, day, range))
         .catch(e => { console.error('Movies:', e.message); return null; });
       if (found?.length) { const now = Date.now(); for (const e of found) { registerEvent(e); this.db.prepare('INSERT OR REPLACE INTO discovered_events VALUES (?,?,?)').run(e.id, JSON.stringify(e), now); } return found.slice(0, 12); }
     }
@@ -376,7 +380,7 @@ export class Discovery {
     this.db.prepare('INSERT OR REPLACE INTO serp_cache VALUES (?,?,?)').run(key, JSON.stringify(data), Date.now());
     return data;
   }
-  async serpMovies(loc, what, date) {
+  async serpMovies(loc, what, date, range = null) {
     // Busiest theaters first (most Google reviews): they're the ones with full schedules. Three searches, cached 12h each.
     const reviews = t => Number(/\((\d+)\)/.exec(t.rating || '')?.[1] || 0);
     const theaters = (await this.places(loc, 'movie theaters', null)).filter(t => /cinema|theat|movie|imax|amc|regal|cinemark|laemmle|arclight|alamo/i.test(`${t.short} ${t.description}`))
@@ -398,7 +402,8 @@ export class Discovery {
       return '';
     };
     const nice = d => d === today ? 'today' : d === plus(1) ? 'tomorrow' : new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-    const days = date && date >= today ? [date] : [today, plus(1)];
+    let days = date && date >= today ? [date] : [today, plus(1)];
+    if (range) { days = []; for (let n = 0; n < 14; n++) { const d = plus(n); if (d >= range.from && d <= range.to) days.push(d); } if (!days.length) days = [date || today]; }
     const minutes = t => { const m = /(\d{1,2}):(\d{2})\s*(am|pm)/i.exec(t); return m ? (Number(m[1]) % 12 + (m[3].toLowerCase() === 'pm' ? 12 : 0)) * 60 + Number(m[2]) : 0; };
     const nowMin = local.getUTCHours() * 60 + local.getUTCMinutes() - 60; // ~1h slack for DST
     const words = String(what).toLowerCase().replace(/\b(movies?|films?|cinema|showtimes?|playing|what'?s|are|is|at|the|this|weekend|tonight|today|near|me|any|good|new)\b/g, ' ').split(/\s+/).filter(w => w.length > 3);
@@ -414,16 +419,21 @@ export class Discovery {
           const times = slots.slice(0, 6).map(x => `${x.time}${x.type && x.type !== 'Standard' ? ` (${x.type})` : ''}`);
           // Google's posters are thumbnails: fine for list rows (thumb), too small for previews (image = theater photo).
           const id = `mv_${short(`${m.name}|${t.id}|${dayName}`)}`, poster = posters.find(p => p.name?.toLowerCase() === m.name.toLowerCase())?.image;
-          out.push(this.shape({ id, source: 'Google showtimes', kind: 'event', category: 'movies', short: m.name, venue: t.short, area: t.area, address: t.address,
+          out.push(this.shape({ id, movieDay: dayName, source: 'Google showtimes', kind: 'event', category: 'movies', short: m.name, venue: t.short, area: t.area, address: t.address,
             time: `${nice(dayName).replace(/^./, c => c.toUpperCase())} · ${slots[0].time}`, startsAt: null, price: null, priceText: 'See showtimes',
             rating: null, image: t.photoRef ? `${this.base}/img/p/${id}` : poster || null, photoRef: t.photoRef || null, thumb: poster || null, url: m.link || t.url, age: 'See listing', showtimes: times,
             description: `Showtimes at ${t.short} ${/^(today|tomorrow)$/.test(nice(dayName)) ? nice(dayName) : `on ${nice(dayName)}`}: ${times.join(', ')}.` }));
         }
       });
-      if (out.length >= 4) break; // today had plenty; skip tomorrow
+      if (!range && out.length >= 4) break; // today had plenty; skip tomorrow (a range covers every day asked for)
     }
-    const wanted = out.filter(e => words.some(w => e.short.toLowerCase().includes(w)));
-    return (wanted.length ? wanted : out).slice(0, 12);
+    const wanted = out.filter(e => words.some(w => e.short.toLowerCase().includes(w))), list = wanted.length ? wanted : out;
+    if (range && days.length > 1) { // alternate days so a weekend search shows Friday, Saturday and Sunday, not 12 Friday rows
+      const byDay = days.map(d => list.filter(e => e.movieDay === d)), mixed = [];
+      for (let i = 0; mixed.length < list.length && i < 60; i++) for (const b of byDay) if (b[i]) mixed.push(b[i]);
+      return mixed.slice(0, 12);
+    }
+    return list.slice(0, 12);
   }
   // Google photo bytes, fetched server-side so the API key never leaves the server.
   async placePhoto(e) {

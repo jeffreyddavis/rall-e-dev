@@ -123,6 +123,8 @@ const server = http.createServer(async (req, res) => {
         await sms.photos.save(phone, Buffer.concat(chunks), 'page'); return json(res, 200, sms.invites.view(phone));
       }
       if (mePhoto && req.method === 'DELETE') { const phone = sms.invites.phoneFor(mePhoto[1]); sms.photos.remove(phone); return json(res, 200, sms.invites.view(phone)); }
+      const meMem = /^\/api\/me\/([\w-]{20,40})\/memory\/([\w-]{8})$/.exec(url.pathname);
+      if (meMem && req.method === 'DELETE') { const phone = sms.invites.phoneFor(meMem[1]); sms.memory.remove(phone, meMem[2]); stats.bump('memory_deleted_page', 1, phone); return json(res, 200, sms.invites.view(phone)); }
       if (me && req.method === 'POST' && me[2]) { const phone = sms.invites.phoneFor(me[1]); sms.invites.create(phone, (await body(req)).name || ''); return json(res, 200, sms.invites.view(phone)); }
       const poll = /^\/api\/poll\/([\w-]{16})$/.exec(url.pathname);
       if (poll && req.method === 'GET') return json(res, 200, { ...sms.polls.view(poll[1]), textNumbers: textNumbers() });

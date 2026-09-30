@@ -75,7 +75,27 @@ export default function MePage({ token }) {
         </form>
         {error && <p className="error" role="alert">{error}</p>}
       </section>
+      <MemoryCard me={me} token={token} onChange={d => setMe({ ...me, ...d })} setError={setError}/>
       {me.joined.length > 0 && <section className="me-card"><h2>Joined with your invite</h2><ul className="me-joined">{me.joined.map((j, i) => <li key={i}><span className="avatar">{j.name.slice(0, 1)}</span><span>{j.name}</span><small>{new Date(j.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small></li>)}</ul></section>}
     </div>}
   </main>;
+}
+
+// What Rall-e remembers about them (their own facts only), each deletable. Texting "forget …" works too.
+function MemoryCard({ me, token, onChange, setError }) {
+  const [busy, setBusy] = useState('');
+  const items = me.memory || [];
+  async function remove(id) {
+    setBusy(id); setError('');
+    try { const r = await fetch(`/api/me/${token}/memory/${id}`, { method: 'DELETE' }), d = await r.json(); if (!r.ok) throw new Error(d.error); onChange(d); }
+    catch (e) { setError(e.message); } finally { setBusy(''); }
+  }
+  return <section className="me-card">
+    <h2>What Rall-e knows</h2>
+    <p className="me-muted">{items.length ? 'Rall-e uses these to plan better for you, and only with you. Remove anything you like, or text “forget …”.' : 'Nothing yet. Tell Rall-e things like “I don’t eat meat” or “Sunday afternoons work best” and it’ll remember.'}</p>
+    {items.length > 0 && <ul className="me-memory">{items.map(f => <li key={f.id}>
+      <span><small>{f.label}{f.about ? ` · ${f.about}` : ''}{f.source !== 'said' ? ' · guess' : ''}</small><strong>{f.value}</strong></span>
+      <button className="icon-button" disabled={busy === f.id} onClick={() => remove(f.id)} aria-label={`Forget: ${f.value}`}><Trash2 size={16}/></button>
+    </li>)}</ul>}
+  </section>;
 }

@@ -32,3 +32,7 @@
 .me-photo-actions{display:flex;gap:8px;margin-top:4px}.me-photo-actions .button{display:inline-flex;align-items:center;gap:6px;padding:10px 14px}
 h2.me-title{font-family:'DM Serif Display',serif;font-weight:400;font-size:30px;letter-spacing:0;text-transform:none;color:#1f3b4d}
 .avatar.has-photo{padding:0;overflow:hidden;background:#e3eff7}.avatar.has-photo img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+.me-memory{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.me-memory li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:rgba(62,119,152,.07)}
+.me-memory li span{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.me-memory small{font-size:12px;color:#6b7a82}.me-memory strong{font-weight:500;color:#2e3a40}
+.me-memory .icon-button{border:0;background:none;color:#8a979e;padding:6px;cursor:pointer}.me-memory .icon-button:hover{color:#b4462f}

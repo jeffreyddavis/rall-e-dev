@@ -138,14 +138,14 @@ export class TextFlow {
     // All cards in one reply share an option set, so each link opens a page listing every option with "My pick".
     const set = cards.length ? this.optionSet(phone, cards) : '';
     // Render the preview images first: iMessage builds the card as the link is sent, and a slow image leaves a grey box.
-    if (cards.length && this.sms.og) await Promise.race([Promise.all(cards.slice(0, 3).map(id => this.sms.og.render(eventById(id)).catch(() => null))), new Promise(r => setTimeout(r, 8000))]);
+    if (cards.length && this.sms.og) await Promise.race([Promise.all(cards.slice(0, 1).map(id => this.sms.og.render(eventById(id)).catch(() => null))), new Promise(r => setTimeout(r, 8000))]);
     // At most 3 preview cards (more floods the thread); the set behind every card holds all the options.
     // Plain SMS (Android, or anyone on green bubbles) draws no link preview, so there the card goes as a picture message:
     // the same preview image attached, with a one-line title above the link.
     const base = this.sms.base || 'https://rall-e.ai', green = this.onSms(phone);
-    for (const id of cards.slice(0, 3)) {
+    for (const id of cards.slice(0, 1)) { // one card (Mike: fewer links, more text); it opens the page with every option
       const link = `${base}/e/${id}?s=${set}`, e = eventById(id);
-      if (green && e) this.sms.deliver(phone, `${e.short}${e.time ? ` · ${e.time}` : ''}\n${link}`, { kind: 'option', media: `${base}/og/e/${id}.jpg` });
+      if (green && e) this.sms.deliver(phone, `${e.short}${e.time ? ` · ${e.time}` : ''}${cards.length > 1 ? ` (+${cards.length - 1} more)` : ''}\n${link}`, { kind: 'option', media: `${base}/og/e/${id}.jpg` });
       else this.sms.deliver(phone, link, { kind: 'option' });
     }
     if (this.threadsFor(phone).length) this.sendCard(phone); // once per phone; no-op afterwards
@@ -211,7 +211,7 @@ export class TextFlow {
     if (!row.ids.includes(eventId)) { const e = new Error('That option isn’t in this list.'); e.status = 400; throw e; }
     if (row.pick === eventId) return { pick: eventId };
     if (row.changes >= 6) { const e = new Error('Text Rall-e to change your pick again.'); e.status = 429; throw e; }
-    this.db.prepare('UPDATE option_sets SET pick=?, changes=changes+1 WHERE id=?').run(eventId, set); stats.bump('my_picks', 1, row.phone);
+    this.db.prepare('UPDATE option_sets SET pick=?, changes=changes+1 WHERE id=?').run(eventId, set); stats.bump('my_picks', 1, row.phone); this.sms.memory?.signal(row.phone, 'picked', eventById(eventId)?.category, 1);
     const e = eventById(eventId);
     if (this.agent.enabled && this.sms.live) this.enqueue(row.phone, `(Tapped "My pick" on ${e.short} [${e.id}] on the options page)`);
     return { pick: eventId };

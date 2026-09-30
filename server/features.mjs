@@ -1,7 +1,7 @@
 // Rall-e's showcase features, shared by the operator console (demo triggers) and the agent (natural, occasional tips).
 // `pitch` is how Rall-e would describe it in a text; `operator` is the instruction a demo trigger gives the agent.
 export const FEATURES = [
-  { id: 'things_to_do', label: 'Things to do nearby', pitch: 'finding real events, restaurants and bars near them, sent as picture cards',
+  { id: 'things_to_do', label: 'Things to do nearby', pitch: 'finding real events, restaurants and bars near them, with a page of the options',
     operator: 'Show them 2–3 great, specific options near them for tonight or this weekend (find_things, then show_options), tailored to what you know about them. One short intro line.' },
   { id: 'showtimes', label: 'Movie showtimes', pitch: 'real movie showtimes at theaters near them',
     operator: 'Show off live movie showtimes: find_things with category movies for tonight (or tomorrow if it is late where they are), pick 2–3 good options with evening times and show_options. Mention they can pick one and you will plan it with friends.' },
