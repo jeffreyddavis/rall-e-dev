@@ -29,7 +29,7 @@ function recommend(s, category, exclude) {
 }
 function initial(name = 'Alex') {
   return { id: randomUUID(), name, revision: 0, stage: 'location', city: 'Hollywood, Los Angeles', recommendation: null, preferences: {}, recurring: false, stopped: false,
-    plan: { title: 'A little Saturday adventure', status: 'proposed', mode: 'loose', stops: [], participants: [], suggestions: [] },
+    plan: { title: 'Your next outing', status: 'proposed', mode: 'loose', stops: [], participants: [], suggestions: [] },
     messages: [], activity: [], nudges: [], createdAt: now(), aiMode: 'curated' };
 }
 export class Store {

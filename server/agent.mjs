@@ -8,6 +8,7 @@ import { stats } from './stats.mjs';
 import { EVENTS, MAX_STOPS, eventById } from './catalog.mjs';
 import { legText } from './discovery.mjs';
 import { areaCodeState } from './geoguess.mjs';
+import { localNow, planTiming, stamp, ago } from './timeline.mjs';
 
 const CATEGORIES = ['dinner', 'live shows', 'comedy', 'museums', 'nature'];
 const digits = value => String(value || '').replace(/\D/g, '').slice(-10);
@@ -52,7 +53,9 @@ Showing what you can do (see "Features" in the situation):
 - Rall-e is invite-only. Each member has a few invites (get_invite_link gives their reusable link and their private invites page). When someone wants a friend to get Rall-e itself, send their invite link; don't send people to the website to sign up without one. Friends invited to a plan can still join that plan from their plan link.
 - Profile photos: members can have one (friends see it on plan pages). If they text a photo with no clear purpose, ask if they'd like it as their profile photo; if they say yes (or asked), call set_profile_photo. They can also change it on their page (get_my_page).
 - Their own events: when someone is organizing something themselves (a BBQ, game night, a picnic, an errand like picking up milk), don't search for listings: create_event, then make_plan or add_stop with it, and invite people as usual.
-- Weather: for "what should I do this week/weekend" or anything outdoors, check get_weather and let it shape the picks (a rainy Saturday means indoor ideas, a sunny one means the patio or the park). Mention it in a few words.`;
+- Weather: for "what should I do this week/weekend" or anything outdoors, check get_weather and let it shape the picks (a rainy Saturday means indoor ideas, a sunny one means the patio or the park). Mention it in a few words.
+- Time: you always know their local time ("Right now for them", "Now") and when each of their texts was sent ([Tue 5:37 PM] at the start of their messages; never write these brackets yourself). Hours pass between texts: think like a friend who notices the clock. Infer when a plan happens from what they say ("itinerary for today", "Saturday") and save it with set_plan_time without asking. Read clues that it's underway ("heading out", asking for directions or a restroom on the way, "we just finished X") and record them with mark_progress; when it's clearly over (evening after a day trip, "we're home", the date has passed), treat it as done (mark_happened) instead of planning around it. Ask only when a wrong guess would matter.
+- Next time vs. last time: when they ask about the future, want to see a feature, or ask "what if" questions and the current plan is over or unrelated, don't anchor on the old plan. Talk about the days ahead, or start a placeholder for "your next outing" (create_event with a working title like "Next outing" and a date if they gave one, then make_plan with it, or start_new_plan first if the current plan has friends on it) and fill it in as they decide. At 11 PM nobody wants tips for this afternoon's trip.`;
 
 const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
@@ -95,7 +98,11 @@ export class Agent {
     if (role === 'new' && this.flow.hadThreads(phone)) return 'This person was on a plan with Rall-e before, but it is no longer active (it ended, or the host closed it). You cannot message that group or change that plan anymore: say so plainly in one line, without blaming anyone. If their first name appears in the conversation, use it and do NOT ask for it again. Offer to start a plan of their own (call start_account with their first name when they want to), or suggest they ask the host for a fresh link.';
     if (role === 'new') return 'This person is new: you do not know their name yet. Greet them, briefly explain Rall-e, and ask for their first name. When they give it, call start_account.';
     const s = t.s, p = s.plan, person = t.person;
-    const lines = [this.channel(phone), this.features.stateLine(t.phone), `Role: ${role === 'host' ? `HOST (their name: ${s.name})` : `INVITED FRIEND (their name: ${person.name}; host: ${s.name})`}`,
+    const now = localNow(this.tzFor(phone)), prev = this.flow.db.prepare("SELECT created FROM sms_log WHERE phone=? AND direction='in' ORDER BY rowid DESC LIMIT 1 OFFSET 1").get(phone);
+    const lines = [this.channel(phone), this.features.stateLine(t.phone),
+      `Now: ${now.label} (${now.daypart}).${prev ? ` Their previous text before this one: ${ago(Date.now() - prev.created)}.` : ''}`,
+      planTiming(s, now),
+      `Role: ${role === 'host' ? `HOST (their name: ${s.name})` : `INVITED FRIEND (their name: ${person.name}; host: ${s.name})`}`,
       `Plan: "${p.title}" — ${({ proposed: `still being planned (${p.mode === 'loose' ? 'friends can suggest changes' : 'locked: friends cannot suggest changes'})`, confirmed: 'CONFIRMED. To change anything (stops, suggestions, switching), the host must first reopen it with reopen_plan', happened: 'already happened', dropped: 'called off' })[p.status]}. Stage: ${s.stage}.`,
       role === 'host' && this.flow.contacts(t.digest).length ? `Saved contacts (numbers on file, invite by name): ${this.flow.contacts(t.digest).join(', ')}` : '',
       role === 'host' ? this.flow.sms.polls?.openFor(s.id) || '' : '',
@@ -116,12 +123,15 @@ export class Agent {
       `Max stops: ${MAX_STOPS}.`];
     return lines.filter(Boolean).join('\n');
   }
+  tzFor(phone) { return this.discovery.tzOf?.(this.discovery.location(phone)) || 'America/New_York'; }
   history(phone) {
-    const rows = this.flow.db.prepare("SELECT direction, body FROM sms_log WHERE phone=? AND status != 'blocked' ORDER BY rowid DESC LIMIT 16").all(phone).reverse();
-    const messages = [];
+    const rows = this.flow.db.prepare("SELECT direction, body, created FROM sms_log WHERE phone=? AND status != 'blocked' ORDER BY rowid DESC LIMIT 16").all(phone).reverse();
+    const messages = [], tz = this.tzFor(phone);
     for (const r of rows) {
       const role = r.direction === 'in' ? 'user' : 'assistant';
-      if (messages.at(-1)?.role === role) messages.at(-1).content += `\n\n${r.body}`; else messages.push({ role, content: r.body });
+      // Their texts carry when they were sent (their local time), so the agent can tell hours have passed.
+      const body = role === 'user' ? `[${stamp(r.created, tz)}] ${r.body}` : r.body;
+      if (messages.at(-1)?.role === role) messages.at(-1).content += `\n\n${body}`; else messages.push({ role, content: body });
     }
     while (messages[0]?.role === 'assistant') messages.shift();
     return messages;
@@ -183,6 +193,8 @@ export class Agent {
       T('reopen_plan', 'Reopen a confirmed plan so it can be changed (add stops, take suggestions, switch). Friends are told. Keeps everyone and their links.'),
       T('cancel_plan', 'Call off the plan; friends are told.'),
       T('mark_happened', 'Mark the outing as done (after it happened).'),
+      T('set_plan_time', 'Save when the plan happens, from what they said or clearly implied ("today", "Saturday afternoon", "tonight at 8"). Do this whenever the day becomes clear, without asking.', { date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: 'HH:MM 24h, if known' }, basis: { type: 'string', enum: ['they said it', 'inferred'] } }, ['date']),
+      T('mark_progress', 'Record progress while they are out: stops they finished ("we just finished the outlook") and whether the outing is underway. When they are clearly done with the whole thing, use mark_happened.', { done_stop_ids: { type: 'array', items: { type: 'string' } }, status: { type: 'string', enum: ['underway'] } }),
       T('start_new_plan', 'Start a brand-new, unrelated plan. Rarely needed: to change the current plan use reopen_plan / add_stop / pick_suggestion instead. The current plan stays as it is for the friends already on it (they keep their links and can still text); the host can go back to it with switch_plan. Saved contacts can be invited by name. Only when the host explicitly wants something new.'),
       ...(live ? [T('start_poll', 'Let the whole group choose between 2-8 options: everyone on the plan gets a personal link where they pick one, rank them, or leave it to the host (Donovan\'s poll page). Use when the host wants the group to decide ("let everyone vote", "ask the group"). Friends who get texts are texted their link; for the others you get links to hand the host to forward.', { title: { type: 'string', description: 'Short, e.g. "Saturday dinner"' }, event_ids: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 8 } }, ['title', 'event_ids'])] : []),
       T('get_links', 'Get the host\'s own plan page link (the whole plan: every stop plus friends\' ideas and picks) and each friend\'s personal plan link. Use when they ask to see the plan or the links.'),
@@ -299,7 +311,20 @@ export class Agent {
         if (name === 'reopen_plan') { act('reopen'); return `Reopened. ${flow.fanout} friends were told. Now make the change they asked for.`; }
         if (name === 'confirm_plan') { act('confirm'); return `Confirmed. ${flow.fanout} friends were texted the details.`; }
         if (name === 'cancel_plan') { act('drop'); return `Called off. ${flow.fanout} friends were told.`; }
-        if (name === 'mark_happened') { act('happened'); return 'Marked as done; preferences updated.'; }
+        if (name === 'mark_happened') { act('happened'); return 'Marked as done; preferences updated. Anything new they want is a new plan (start_new_plan).'; }
+        if (name === 'set_plan_time') {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date || '')) return 'Error: date must be YYYY-MM-DD.';
+          const cur = this.store.load(t.digest); cur.plan.when = { date: input.date, time: /^\d{1,2}:\d{2}$/.test(input.time || '') ? input.time.padStart(5, '0') : '', basis: input.basis || 'inferred', at: Date.now() }; this.store.persist(t.digest, cur);
+          return `Saved. ${planTiming(cur, localNow(this.tzFor(phone)))}`;
+        }
+        if (name === 'mark_progress') {
+          const cur = this.store.load(t.digest), done = new Set([...(cur.plan.progress?.done || []), ...(input.done_stop_ids || []).filter(id => cur.plan.stops.includes(id))]);
+          cur.plan.progress = { done: [...done], status: input.status || cur.plan.progress?.status || 'underway', at: Date.now() };
+          if (!cur.plan.when?.date) { const n = localNow(this.tzFor(phone)); cur.plan.when = { date: n.date, time: '', basis: 'inferred (they were out doing it)', at: Date.now() }; }
+          this.store.persist(t.digest, cur);
+          const next = cur.plan.stops.find(id => !done.has(id));
+          return `Noted. ${next ? `Next stop: ${eventById(next).short}.` : 'That was the last stop; if they are wrapping up, mark_happened.'}`;
+        }
         if (name === 'start_new_plan') { const r = flow.newPlan(phone, t); return `New plan started.${r.kept ? ` "${r.previous}" is still on for the friends in it (their links and texts keep working); switch_plan goes back to it.` : ''} Ask what they feel like doing${this.discovery.enabled ? '' : ' and if Hollywood still works'}.`; }
         if (name === 'get_links') return `Host's evening view (only for them, include it when they want to see the plan): ${flow.sms.base || 'https://rall-e.ai'}/n/${this.flow.store.nightLink(t.digest)}\n${p.participants.length ? `Friends' personal links (each friend sees the same evening view):\n${p.participants.map(x => `${x.name}: ${flow.link_(s, x)}`).join('\n')}` : 'Nobody invited yet.'}`;
         if (name === 'message_group') { act('chat', { text: String(input.text).slice(0, 300) }); return flow.fanout ? `Sent to ${flow.fanout} people.` : 'Nobody on this plan gets texts yet; it was saved to the plan page.'; }
@@ -373,14 +398,14 @@ export class Agent {
       const note = `[Behind the scenes, from the Rall-e team (not from them; they will not see this): ${operator}\nWrite your next text to them now, proactively, as if continuing the conversation naturally. Keep it short and friendly, don't mention the team or a demo, and don't repeat what you already told them.]`;
       if (messages.at(-1)?.role === 'user') messages.at(-1).content += `\n\n${note}`; else messages.push({ role: 'user', content: note });
       (this.operatorFor ||= new Map()).set(phone, true);
-    } else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: text });
+    } else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: `[${stamp(Date.now(), this.tzFor(phone))}] ${text}` });
     try { return await this.respondWith(phone, operator ? '' : text, messages); } finally { this.operatorFor?.delete(phone); }
   }
   async respondWith(phone, text, messages) {
     // System prompt and tools are fixed for the whole reply (Claude's thinking is bound to them).
     // Changes made by tools come back in tool results; the next text gets a fresh snapshot.
-    const ctx0 = this.context(phone), today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' });
-    const system = `${SYSTEM}\n\nToday is ${today} (US Eastern).\n\n${this.discovery.enabled ? DISCOVERY : `Live search is off: use only this sample catalogue for Hollywood, Los Angeles (fictional; say "sample" for prices).\nCatalogue (id: details):\n${catalogue()}`}\n\nCurrent situation for the person texting you (as of their latest text):\n${this.state(ctx0)}`;
+    const ctx0 = this.context(phone), now = localNow(this.tzFor(phone)), today = `${now.label}, ${now.daypart} (their local time, ${now.tz}; today is ${now.date})`;
+    const system = `${SYSTEM}\n\nRight now for them: ${today}.\n\n${this.discovery.enabled ? DISCOVERY : `Live search is off: use only this sample catalogue for Hollywood, Los Angeles (fictional; say "sample" for prices).\nCatalogue (id: details):\n${catalogue()}`}\n\nCurrent situation for the person texting you (as of their latest text):\n${this.state(ctx0)}`;
     const tools = this.tools(ctx0);
     const state = {}; // once a reply falls back to OpenAI it finishes there (the two can't share a half-finished turn)
     for (let round = 0; round < 6; round++) {

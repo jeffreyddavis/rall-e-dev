@@ -7,6 +7,7 @@ import { registerEvent, eventById } from './catalog.mjs';
 import { fail } from './store.mjs';
 import { meter } from './usage.mjs';
 import { stats } from './stats.mjs';
+import { tzFromLng } from './timeline.mjs';
 
 const short = s => createHash('sha1').update(String(s)).digest('base64url').slice(0, 10);
 const DAY = 86400000;
@@ -51,6 +52,7 @@ export class Discovery {
       CREATE TABLE IF NOT EXISTS geo_cache (q TEXT PRIMARY KEY, lat REAL, lng REAL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS travel_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS weather_cache (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS tz_cache (k TEXT PRIMARY KEY, tz TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS place_checks (k TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);`);
     // Plans keep referencing outings found earlier, including after a restart.
     for (const row of this.db.prepare('SELECT data FROM discovered_events WHERE fetched > ?').all(Date.now() - 60 * DAY)) registerEvent(JSON.parse(row.data));
@@ -123,6 +125,7 @@ export class Discovery {
     if (hit) return JSON.parse(hit.data);
     const headers = { 'User-Agent': 'Rall-e (rall-e.ai)', Accept: 'application/geo+json' };
     const point = await this.get(`https://api.weather.gov/points/${loc.lat.toFixed(4)},${loc.lng.toFixed(4)}`, { headers }).catch(() => null);
+    if (point?.properties?.timeZone) this.db.prepare('INSERT OR REPLACE INTO tz_cache VALUES (?,?)').run(`${loc.lat.toFixed(1)},${loc.lng.toFixed(1)}`, point.properties.timeZone);
     if (!point?.properties?.forecast) fail(502, 'Weather is only available for US locations right now.');
     const f = await this.get(point.properties.forecast, { headers });
     const out = { place: point.properties.relativeLocation?.properties?.city || loc.label, periods: (f.properties?.periods || []).slice(0, 14).map(p => ({
@@ -131,6 +134,12 @@ export class Discovery {
     return out;
   }
   weatherText(w) { return `Forecast near ${w.place}:\n${w.periods.map(p => `${p.name} (${p.day}): ${p.sky}, ${p.temp}${p.rain ? `, ${p.rain}% chance of rain` : ''}`).join('\n')}`; }
+
+  // Their time zone: from the NWS lookup when we've done one for that area, else estimated from longitude.
+  tzOf(loc) {
+    if (loc?.lat == null) return 'America/New_York';
+    return this.db.prepare('SELECT tz FROM tz_cache WHERE k=?').get(`${loc.lat.toFixed(1)},${loc.lng.toFixed(1)}`)?.tz || tzFromLng(loc.lat, loc.lng);
+  }
 
   // ---------- their own events ----------
   // Something the person is organizing themselves ("BBQ at my place Saturday at 4", "pick up milk") becomes a stop like any other.
