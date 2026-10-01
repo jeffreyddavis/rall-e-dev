@@ -23,6 +23,29 @@ You can also drop links in Slack for the agent/developer to add.
 When someone asks about live music, Rall-e finds small music venues near them on Google Places (it skips arenas, amphitheaters, casinos and performing-arts centers) and adds their websites as sources. It adds up to 8 per area, once a week. From then on their calendars are read every 12 hours. Music results are ranked with local gigs first, then smaller Ticketmaster shows, then the venues themselves, and big venues last.
 City listing sites work well too, for example [WannaGoSee](https://wannagosee.com/rhode-island/greater-providence/) for Greater Providence.
 
+## Automatic feed finding (since 10-01)
+When a source page has no structured event data, Rall-e looks for a feed before paying for AI reading:
+- **Localist** calendars (many universities, museums and cities) through their open `/api/2/events` API.
+- **Calendar feeds the page links to**: `<link rel="alternate" type="text/calendar">`, `.ics`, `?ical=1` and `webcal:` links, and The Events Calendar's `/events/?ical=1`.
+- **CivicPlus city calendars**: the `iCalendar.aspx` page and its per-category feeds.
+
+The same checks run when the agent checks a venue (`check_places`). Example: adding `https://calendar.usc.edu/` picked up 150 events through Localist.
+
+## One-off events by hand
+`/ops` → Sources → "Add a one-off event by hand" (both keys). Use it for supper clubs, pop-ups, night markets and other things with no feed. The doc calls this "own the deserts." The events show up in searches near that city.
+
+## Marc's niche-sources doc (10-01): what we did and didn't do
+| Item | Decision |
+| --- | --- |
+| schema.org/JSON-LD, iCal/RSS feeds, CivicPlus, Localist | **Done.** Done per source and per venue, not as a crawl of the whole web; a Web Data Commons host crawl can come later. |
+| USDA Local Food Portal (farmers markets, agritourism, u-pick) | **Built; needs a free key.** Register at usdalocalfoodportal.com/fe/fregisterpublicapi/ and set `USDA_LOCALFOOD_KEY`. Farm and market searches then use it. |
+| ACTIVE Network (parks and rec, YMCAs) | Needs a registration key; worth applying. Not built yet. |
+| Manual seeding of "deserts" | **Done** (one-off events form). |
+| PickYourOwn.org | Never ingested: they forbid republishing. Link out only. |
+| Resident Advisor GraphQL, DICE internal JSON, capturing hidden locator endpoints (trivia, run clubs) | **Skipped.** These go against those sites' terms; we stick to published data and robots.txt. Revisit through partnerships. |
+| Fever, TodayTix, Viator/GetYourGuide affiliates, SeatGeek | Need business signups (team). Fever's public LA page already feeds us. |
+| Food-truck open data (Socrata/ArcGIS), parkrun, Untappd, Burbio | Later or no: city-specific, tiny US footprint, no events, or sales-gated. |
+
 ## Sources added 09-30
 - **Los Angeles** (from the team's LA booking-sites sheet): The Comedy Store calendar, Fever Los Angeles, Luma Los Angeles, The LA Grind (Luma), Hollywood Bowl, Escape Room LA, and Pottery Studio 1 LA.
   - Escape Room LA and Pottery Studio are bookable activities without an event list, so they show 0 events.

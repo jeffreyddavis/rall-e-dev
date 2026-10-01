@@ -9,7 +9,8 @@
 .me-links{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
 .me-links li{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:rgba(62,119,152,.07)}
 .me-links li>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
-.me-links input{width:100%;min-width:0;border:0;background:transparent;font:inherit;font-size:14px;color:#2f5f7c;padding:0;text-overflow:ellipsis}
+/* The full link always shows: smaller type, wraps instead of being cut off (Marc: the "-e" was cut), and selects in one tap. */
+.me-link-url{font-size:13px;line-height:1.35;color:#2f5f7c;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
 .me-links small{color:#6b7a82;font-size:12px}
 .me-links .button{flex:none;display:inline-flex;align-items:center;gap:6px;padding:10px 14px}
 .me-new{display:flex;flex-direction:column;gap:6px;margin-top:6px}
@@ -36,3 +37,9 @@ h2.me-title{font-family:'DM Serif Display',serif;font-weight:400;font-size:30px;
 .me-memory li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:rgba(62,119,152,.07)}
 .me-memory li span{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.me-memory small{font-size:12px;color:#6b7a82}.me-memory strong{font-weight:500;color:#2e3a40}
 .me-memory .icon-button{border:0;background:none;color:#8a979e;padding:6px;cursor:pointer}.me-memory .icon-button:hover{color:#b4462f}
+
+.fav-title{font-size:30px;line-height:1.15;margin:4px 0 14px}
+.fav-list{list-style:none;margin:0 0 16px;padding:0;display:flex;flex-direction:column;gap:10px}
+.fav-list li{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:16px;background:rgba(62,119,152,.07)}
+.fav-rank{flex:none;width:30px;height:30px;border-radius:50%;background:#52b1f4;color:#fff;font-weight:700;display:grid;place-items:center}
+.fav-list strong a{color:#1f3b4d;text-decoration:none}.fav-list p{margin:3px 0 0;color:#4e5a60;font-size:14px}.fav-list small{display:block;margin-top:3px;color:#6b7a82;font-size:12px}

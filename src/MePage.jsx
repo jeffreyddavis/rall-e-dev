@@ -64,7 +64,7 @@ export default function MePage({ token }) {
       <section className="me-card">
         <h2>Your links</h2>
         <ul className="me-links">{me.links.map(l => <li key={l.code}>
-          <div><strong>{l.label || 'Your invite link'}</strong><input readOnly value={l.url} aria-label="Invite link" onFocus={e => e.target.select()}/><small>{l.joins ? `${l.joins} joined` : 'No one yet'}</small></div>
+          <div><strong>{l.label || 'Your invite link'}</strong><span className="me-link-url" aria-label="Invite link">{l.url.replace(/^https?:\/\//, '')}</span><small>{l.joins ? `${l.joins} joined` : 'No one yet'}</small></div>
           <button className="button primary" disabled={!left} onClick={() => share(l)} aria-label={`Share ${l.label || 'your invite link'}`}>{copied === l.code ? <><Check size={16}/>Copied</> : navigator.share ? <><Share2 size={16}/>Share</> : <><Copy size={16}/>Copy</>}</button>
         </li>)}</ul>
         <form className="me-new" onSubmit={create}>

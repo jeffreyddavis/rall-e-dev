@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MessageCircle, LoaderCircle, Check } from 'lucide-react';
 
 // Opt in to Rall-e from a shared page: name + number + consent box, then the code Rall-e texts (double opt-in).
@@ -13,10 +13,13 @@ export default function JoinCard({ source, textNumbers, night = null, heading = 
   const [code, setCode] = useState(''), [demo, setDemo] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const apple = /iPhone|iPad|Macintosh/.test(navigator.userAgent), to = (apple ? textNumbers?.imessage : textNumbers?.sms) || textNumbers?.sms || '';
   const hello = to ? `sms:${to}${apple ? '&' : '?'}body=${encodeURIComponent('Hi Rall-e! Find us something fun to do this weekend')}` : '';
+  // This shared page is the read-only view. Once they're on the plan, their own page (RSVP, picks, ideas) is the one
+  // to use, so take them there instead of leaving a "see your plan page" button on what looks like the same page.
+  useEffect(() => { if (step === 'done' && joined?.link && joined.already !== 'host') { const t = setTimeout(() => location.assign(joined.link), 1800); return () => clearTimeout(t); } }, [step, joined]);
   const run = async fn => { setBusy(true); setError(''); try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
   if (step === 'done' && joined) return <div className="evening-cta join-card"><strong><Check size={16}/>{joined.already === 'host' ? 'This is your own plan' : `You’re in for ${night.host}’s plan!`}</strong>
-    <span>{joined.already === 'host' ? 'You’re already hosting it.' : `Rall-e just texted you the details${joined.already ? '' : ' and its contact card'}. Text it anytime with questions or ideas.`}</span>
-    {joined.link && <a className="button primary share-button" href={joined.link}>See your plan page</a>}</div>;
+    <span>{joined.already === 'host' ? 'You’re already hosting it.' : `Rall-e just texted you the details${joined.already ? '' : ' and its contact card'}. Opening your own page for this plan, where you can RSVP and pick favorites…`}</span>
+    {joined.link && <a className="button primary share-button" href={joined.link}>{joined.already === 'host' ? 'Open your host view' : 'RSVP and pick favorites'}</a>}</div>;
   if (step === 'done') return <div className="evening-cta join-card"><strong><Check size={16}/>You’re in, {name}!</strong><span>Rall-e just texted you. Save its contact card, then text it what you’re in the mood for.</span>
     {hello && <a className="button primary share-button" href={hello}><MessageCircle size={17}/>Text Rall-e</a>}</div>;
   if (step === 'member') return <div className="evening-cta join-card"><strong><Check size={16}/>You’re already on Rall-e</strong><span>Just text it what you’re in the mood for.</span>

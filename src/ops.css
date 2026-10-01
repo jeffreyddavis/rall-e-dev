@@ -100,3 +100,8 @@
 .src-table td{padding:10px 8px;border-bottom:1px solid #eef2f4;vertical-align:top}.src-table td a{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;color:#2f89c2}
 .src-error{display:block;color:#b4462f;font-size:12px;margin-top:4px}.src-actions{white-space:nowrap}
 .tx-card .tx-big{margin:0;font-size:28px;font-weight:800;color:#1d3b4f}
+.src-manual{margin:6px 0 14px}.src-manual summary{cursor:pointer;font-weight:700;color:#1d3b4f;padding:6px 0}
+.src-notes dl{display:grid;gap:8px;margin:6px 0 12px}.src-notes dt{font-weight:700;color:#1d3b4f}.src-notes dd{margin:2px 0 0;color:#4e5a60;font-size:13px}
+.src-status{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;background:#eef1f2;color:#5c6d76}.src-status.done{background:#e3f4ea;color:#23764a}.src-status.waiting,.src-status.team{background:#fff4dc;color:#7a5200}.src-status.skipped{background:#ffe6e2;color:#8f1d12}
+.ideas-filter{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}.ideas-filter button{border:1px solid #d6dde0;background:#fff;border-radius:14px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer}.ideas-filter button.on{background:#1d3b4f;color:#fff;border-color:#1d3b4f}
+.idea-note{display:block;color:#6b7a82;font-size:12px;margin-top:2px}.src-table select,.src-table td input{font:inherit;font-size:13px;padding:4px 6px;border:1px solid #d6dde0;border-radius:8px;background:#fff;max-width:100%}

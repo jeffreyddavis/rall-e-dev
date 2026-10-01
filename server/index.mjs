@@ -25,7 +25,9 @@ const photoCache = new Map();
 const publicBase = (process.env.PUBLIC_BASE_URL || 'https://rall-e.ai').replace(/\/$/, '');
 const attr = v => String(v ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 // Link previews (iMessage, Google Messages, Slack…) read these Open Graph tags.
-const previewTags = ({ title, description, image, url }) => [['og:type', 'website'], ['og:site_name', 'Rall-e'], ['og:title', title], ['og:description', description], ['og:url', url], ['og:image', image], ['og:image:type', 'image/jpeg'], ['og:image:width', '1000'], ['og:image:height', '750'], ['twitter:card', 'summary_large_image']].map(([k, v]) => `<meta property="${k}" content="${attr(v)}">`).join('') + `<title>${attr(title)} · Rall-e</title>`;
+// Link previews (iMessage, Slack) break lines at a plain hyphen, which split the name as "Rall-" / "e". A non-breaking hyphen keeps it whole.
+const nb = v => String(v ?? '').replace(/Rall-e/g, 'Rall\u2011e');
+const previewTags = ({ title: t0, description: d0, image, url }, title = nb(t0), description = nb(d0)) => [['og:type', 'website'], ['og:site_name', nb('Rall-e')], ['og:title', title], ['og:description', description], ['og:url', url], ['og:image', image], ['og:image:type', 'image/jpeg'], ['og:image:width', '1000'], ['og:image:height', '750'], ['twitter:card', 'summary_large_image']].map(([k, v]) => `<meta property="${k}" content="${attr(v)}">`).join('') + `<title>${attr(title)} · ${nb('Rall-e')}</title>`;
 const publicEvent = e => ({ id: e.id, short: e.short, title: e.title, tag: e.tag, venue: e.venue, area: e.area, address: e.address, time: e.time, doors: e.doors, priceText: e.priceText || (e.price ? `$${e.price}/person (sample)` : 'Free'), rating: e.rating, description: e.description, url: e.url, source: e.source || 'Rall-e sample', color: e.color, image: e.image, thumb: e.thumb, fictional: e.fictional !== false, accessibility: e.accessibility, age: e.age });
 const production = process.env.NODE_ENV === 'production';
 // "Plan this with friends" opens Messages to Rall-e: iPhones get the iMessage line, everything else the SMS line.
@@ -45,9 +47,9 @@ const textNumbers = () => ({ imessage: sms.provider === 'sendblue' ? sms.sendblu
 const vite = !production ? await (await import('vite')).createServer({ root, server: { middlewareMode: true }, appType: 'spa' }) : null;
 const locks = new Set();
 const json = (res, code, value) => { res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(value)); };
-async function body(req) {
+async function body(req, limit = 16000) {
   if (!req.headers['content-type']?.startsWith('application/json')) fail(415, 'Use JSON requests.');
-  let value = ''; for await (const chunk of req) { value += chunk; if (value.length > 16000) fail(413, 'Request is too large.'); }
+  let value = ''; for await (const chunk of req) { value += chunk; if (value.length > limit) fail(413, 'Request is too large.'); }
   try { return JSON.parse(value || '{}'); } catch { fail(400, 'Invalid JSON.'); }
 }
 const cookie = req => req.headers.cookie?.split(';').map(x => x.trim()).find(x => x.startsWith('rally_session='))?.slice(14);
@@ -70,6 +72,11 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req), key = url.searchParams.get('key');
       return json(res, 200, url.pathname.endsWith('/inbound') ? sms.sendblueInbound(key, input) : sms.sendblueStatus(key, url.searchParams.get('log'), input));
     }
+    if (url.pathname === '/api/vapi/webhook') {
+      if (req.method !== 'POST') fail(405, 'Method not allowed.');
+      // Each call has a separate random secret supplied as a Vapi server header.
+      return json(res, 200, sms.voice.webhook(url.searchParams.get('id'), req.headers['x-rally-voice-secret'], await body(req, 256000)));
+    }
     if (url.pathname.startsWith('/api/')) {
       if (['POST','DELETE'].includes(req.method) && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) fail(403, 'Use the app’s own origin.');
       const setSession = id => res.setHeader('Set-Cookie', `rally_session=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${production ? '; Secure' : ''}`);
@@ -91,6 +98,8 @@ const server = http.createServer(async (req, res) => {
         if (!result.existing) return json(res, 200, result);
         setSession(result.session); return json(res, 200, { existing: true, state: store.view(store.get(result.session)) });
       }
+      const favMatch = /^\/api\/fav\/([\w-]{8,20})$/.exec(url.pathname);
+      if (favMatch && req.method === 'GET') return json(res, 200, { ...sms.favorites.view(favMatch[1]), textNumbers: textNumbers() });
       const eventMatch = /^\/api\/event\/([\w-]{1,40})$/.exec(url.pathname);
       if (eventMatch && req.method === 'GET') { const e = eventById(eventMatch[1]); if (!e) fail(404, 'That listing is no longer available.'); return json(res, 200, { event: publicEvent(e), textNumbers: textNumbers() }); }
       // ---------- invite-only: invite links, the private "me" page, the waitlist ----------
@@ -212,13 +221,17 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
         // Sources (curated event calendars) are open to both keys, so Mike and Marc can manage them from the dashboard.
-        if (url.pathname === '/api/ops/sources' && req.method === 'GET') return json(res, 200, { sources: sms.sources.list() });
+        if (url.pathname === '/api/ops/sources' && req.method === 'GET') return json(res, 200, { sources: sms.sources.list(), manual: sms.sources.manualEvents() });
         if (url.pathname === '/api/ops/transactions' && req.method === 'GET') return json(res, 200, sms.bookings.report());
+        // Ideas inbox (tips, gems, feedback): both keys can read and review it.
+        if (url.pathname === '/api/ops/ideas' && req.method === 'GET') return json(res, 200, { ideas: sms.ideas.list() });
+        if (url.pathname === '/api/ops/ideas' && req.method === 'POST') { const input = await body(req); if (input.add) sms.ideas.add(null, { ...input.add, source: 'team' }); const r = input.id ? await sms.ideas.update(String(input.id), { status: input.status, teamNote: input.teamNote }) : {}; return json(res, 200, { ideas: sms.ideas.list(), result: r.result || '' }); }
         if (req.method !== 'POST') fail(405, 'Method not allowed.');
         if (url.pathname.startsWith('/api/ops/sources')) {
           const input = await body(req), op = url.pathname.slice('/api/ops/sources'.length);
-          if (op === '') await sms.sources.add(input); else if (op === '/refresh') await sms.sources.refresh(String(input.id || '')); else if (op === '/remove') sms.sources.remove(String(input.id || '')); else fail(404, 'Not found.');
-          return json(res, 200, { sources: sms.sources.list() });
+          if (op === '') await sms.sources.add(input); else if (op === '/refresh') await sms.sources.refresh(String(input.id || '')); else if (op === '/remove') sms.sources.remove(String(input.id || ''));
+          else if (op === '/event') await sms.sources.addEvent(input); else if (op === '/event/remove') sms.sources.removeEvent(input.id); else fail(404, 'Not found.');
+          return json(res, 200, { sources: sms.sources.list(), manual: sms.sources.manualEvents() });
         }
         if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
         if (url.pathname === '/api/ops/gap') { const input = await body(req); stats.setGap(String(input.category || ''), input); return json(res, 200, { ok: true }); }
@@ -310,12 +323,13 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': jpg.length, 'cache-control': 'public, max-age=86400' }); return res.end(jpg);
     }
     // Event and invite pages carry preview tags so a texted link shows the frosted-glass card.
-    const pageMatch = production && (/^\/e\/([\w-]{1,40})$/.exec(url.pathname) || /^\/p\/([\w-]+)$/.exec(url.pathname) || /^\/n\/([\w-]{20,40})$/.exec(url.pathname) || /^\/s\/([\w-]{12})$/.exec(url.pathname) || /^\/i\/([a-z0-9-]{8,64})$/.exec(url.pathname) || /^\/q\/([\w-]{16})$/.exec(url.pathname));
+    const pageMatch = production && (/^\/e\/([\w-]{1,40})$/.exec(url.pathname) || /^\/p\/([\w-]+)$/.exec(url.pathname) || /^\/n\/([\w-]{20,40})$/.exec(url.pathname) || /^\/s\/([\w-]{12})$/.exec(url.pathname) || /^\/i\/([a-z0-9-]{8,64})$/.exec(url.pathname) || /^\/q\/([\w-]{16})$/.exec(url.pathname) || /^\/f\/([\w-]{8,20})$/.exec(url.pathname));
     if (pageMatch && req.method === 'GET') {
       let tags = '';
       try {
         if (url.pathname.startsWith('/e/')) { const e = eventById(pageMatch[1]); if (e) tags = previewTags({ title: e.short, description: [e.time, e.venue, e.area].filter(Boolean).join(' · '), image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}/e/${e.id}` }); }
         else if (url.pathname.startsWith('/q/')) { const v = sms.polls.view(pageMatch[1]), e = eventById(JSON.parse(sms.polls.who(pageMatch[1]).ids)[0]); tags = previewTags({ title: `${v.asker} wants your pick: ${v.title}`, description: `${v.options.length} options · ${v.answered} of ${v.total} answered`, image: e ? `${publicBase}/og/e/${e.id}.jpg` : `${publicBase}/rall-e-icon.png`, url: `${publicBase}${url.pathname}` }); }
+        else if (url.pathname.startsWith('/f/')) { const v = sms.favorites.view(pageMatch[1]); tags = previewTags({ title: `${v.who}'s top ${v.items.length} ${v.category} in ${v.city.split(',')[0]}`, description: v.items.map(i => `${i.rank}. ${i.name}`).join(' · '), image: `${publicBase}/rall-e-icon.png`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/i/')) { const l = sms.invites.lookup(pageMatch[1]); tags = previewTags({ title: `${l.inviter} invited you to Rall-e`, description: 'Rall-e plans your social life so you can focus on the fun stuff. Invite-only for now.', image: `${publicBase}/rall-e-icon.png`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/s/')) { const s = store.shared(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `${s.name}'s plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'}, planned with Rall-e`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
         else if (url.pathname.startsWith('/n/')) { const { s } = store.night(pageMatch[1]); const e = eventById(s.plan.stops[0]); if (e) tags = previewTags({ title: `Your plan: ${s.plan.title}`, description: `${s.plan.stops.length} ${s.plan.stops.length === 1 ? 'stop' : 'stops'} · ${s.plan.participants.filter(p => p.response === 'yes').length + 1} going`, image: `${publicBase}/og/e/${e.id}.jpg`, url: `${publicBase}${url.pathname}` }); }
@@ -361,7 +375,7 @@ const server = http.createServer(async (req, res) => {
     res.end(await readFile(path));
   } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); if (sms.voice.enabled) { setTimeout(() => sms.voice.reconcile().catch(() => {}), 30000).unref(); setInterval(() => sms.voice.reconcile().catch(() => {}), 120000).unref(); } });
 // Deploys restart the service: stop taking requests, finish texts already being handled (up to 25 s), then exit.
 let stopping = false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => {

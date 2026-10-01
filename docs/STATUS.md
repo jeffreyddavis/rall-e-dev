@@ -1,6 +1,6 @@
 # Rall-e status
 
-_Last updated: 2026-09-30. Update this file with every round of work (see AGENTS.md)._
+_Last updated: 2026-10-01. Update this file with every round of work (see AGENTS.md)._
 
 ## Live state
 - **Site:** https://rall-e.ai. It's the texting prototype in LIVE mode for testers and people who opted in. Web signup and share pages are public.
@@ -37,10 +37,13 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
   - Contact cards texted to Rall-e are saved for invites.
   - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
 - **Agent memory (Phase 1, 09-30):** per-person facts + behavior signals, a small "what I know" card in each turn, `remember`/`forget`/`what_i_know` tools, and "What Rall-e knows" on `/me/` (delete per fact). See `docs/MEMORY.md`.
-- **Tests:** 92 pass.
+- **Restaurant calls (10-01):** Vapi integration is deployed but off. It requires an imported, outbound-capable number and `VAPI_CALLS_ENABLED=live`; the configured Vapi-provided number cannot call out. No restaurant calls have been placed. Members still get booking links.
+- **Tests:** 100 pass.
 
 ## Open items / next
-- **Paying for things (Stripe Link for agents):** needs Stripe to register a Link OAuth client for a hosted agent (Mike/Marc asking Stripe), ideally on a new dedicated Rall-e Stripe account. Then: connect-your-Link page, spend requests (person approves each purchase), checkout on independent ticket sites. Default limits $500 per purchase and per day. AI phone calls to restaurants: Jeff pitching the team.
+- **Team task list now lives in `/ops` → Ideas** (both keys). Keep it current there; this list is the dev-side summary.
+- **Restaurant calls:** a separate Twilio number ending 6699 appears unused (no calls or texts in the last 60 days; default voice handler), but importing it would transmit Twilio account credentials to Vapi and change that number's routing. Automatic approval review rejected the import pending explicit authorization. Once approved, import with SMS disabled (do not repurpose the live Twilio texting line), replace `VAPI_PHONE_NUMBER_ID` in `.env`, make one controlled call to a number we own, verify callback and result, then set `VAPI_CALLS_ENABLED=live` and deploy.
+- **Paying for things (Stripe Link for agents):** needs Stripe to register a Link OAuth client for a hosted agent (Mike/Marc asking Stripe), ideally on a new dedicated Rall-e Stripe account. Then: connect-your-Link page, spend requests (person approves each purchase), checkout on independent ticket sites. Default limits $500 per purchase and per day.
 - **What's new:** add a `/me` page switch for update texts and an ops view of release notes (`whatsNew.summary()`); use a distinct log kind instead of `update`.
 - **Agent memory:** Phase 2 next (nightly consolidation, episodes, recall search), then Phase 3. See `docs/MEMORY.md`.
 - **Mike's list, not built (see the recommendations in chat / below):**
@@ -61,6 +64,18 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **10-01, Vapi restaurant calling code:** Deployed `call_restaurant` for explicit requests, verified Google Places business numbers, a per-member and global daily cap, an outbound-number check, a scoped AI caller that cannot handle payments, a per-call authenticated webhook, periodic result reconciliation, and result texts through `sms.deliver()`. The call tool is hidden until `VAPI_CALLS_ENABLED=live`; the existing Vapi number cannot make outbound calls. Added a held release note for Jeff to approve when activated. Fixed the venue-local date formatter and the deploy script's Node 24 test summary. All 100 tests passed; the production deploy and health checks succeeded with calls off.
+- **10-01, Mike's three ideas:**
+  - **Favorites / top 5:** "my top 5 coffee spots in Providence" → `set_favorites` saves the list (places looked up on Google), with a public share page `/f/<token>` (first name + places only, link preview included). Connected friends' favorites show up for the agent when it searches near that city. `server/favorites.mjs`, `src/FavPage.jsx`.
+  - **"Train Rall-e," structured:** members text hidden gems, event websites, feedback or feature ideas (`share_tip`). They land in the new `/ops` → **Ideas** tab (both keys), which is now the team task list (status + team notes). Nothing changes Rall-e until approved there: an approved gem is credited to the member in recommendations near that city; an approved site becomes a source. Open-ended prompts were skipped on purpose. `server/ideas.mjs`, `src/IdeasTab.jsx`.
+  - **AI phone calls:** approved; the Vapi integration is now coded, awaiting an outbound-capable number and a controlled live test. Seeded the Ideas tab with this and the other open items.
+- **10-01, "who else is going" (Marc) + link-preview hyphen fix:**
+  - Tell Rall-e "I'm going to TechCrunch Disrupt Oct 27" → `going_to` saves it and says which friends on Rall-e are going too. Friends = people you're connected with (saved contacts either way, or been on a plan together). Only people who chose to share are shown (private until they say yes). Same event = same day + mostly the same name words. When someone shares, connected friends already going get one heads-up text (8 AM–9 PM their time). `server/going.mjs`.
+  - Link previews (og:title, etc.) now use a non-breaking hyphen in "Rall-e", so iMessage no longer splits it as "Rall-" / "e" (the designer's soft-hyphen report).
+- **10-01, "How we pick sources" in /ops:** the source decisions (Marc's niche-sources doc, the LA sheet, JamBase) are now on `/ops` → Sources under "How we pick sources", visible with both keys. Content lives in `src/sourceNotes.js`; update it with `docs/DATA_SOURCES.md` whenever the team reviews a new source idea.
+- **10-01, invite link cut off (Marc/Donovan):** on the `/me` invites page the link was a one-line input, so on phones it got cut off around "rall-e…". It now shows the full link without `https://`, in slightly smaller type, wrapping onto a second line when needed, and still selectable in one tap. No soft hyphens anywhere in the code or texts (checked).
+- **10-01, "see your plan page" on a shared page (Marc's bug):** after someone joins from a shared plan page (`/s/`), they're now taken to their own page (`/p/`, RSVP and picks) automatically, and the button reads "RSVP and pick favorites" instead of "See your plan page" (they were already looking at the plan). `src/JoinCard.jsx`.
+- **10-01, Marc's niche sources (round 1):** sources now find Localist APIs, linked calendar feeds and CivicPlus feeds before using AI (also in `check_places`). The team can add one-off events by hand in `/ops` → Sources. USDA farmers market and agritourism search is built but waits on a free key (`USDA_LOCALFOOD_KEY`). Added USC (Localist, 150 events) and LA Public Library. Skipped sources that need ToS-breaking scraping. See `docs/DATA_SOURCES.md`.
 - **09-30, JamBase:** live-music searches now include JamBase concerts (`JAMBASE_KEY`), with venue capacity used to rank local gigs (under 3,000) above arena shows. Cached 6 hours per area and dates. Trial quota: 1,000 calls until Oct 15, hard stop; the `/ops` Usage tab shows calls left. Developer-plan terms: non-commercial, attribution ("via JamBase" in event descriptions).
 - **09-30, local music + LA sources:**
   - Music searches find small venues near the person, adopt their websites as sources (up to 8 per area, weekly), and rank local gigs above arenas. Weekend searches spread across Fri–Sun.

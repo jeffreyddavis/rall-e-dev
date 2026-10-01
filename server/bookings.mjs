@@ -1,7 +1,7 @@
 // Reservations and purchases Rall-e helps with, and the transaction record behind the /ops volume numbers.
 // Today Rall-e books through a pre-filled link to the venue's own booking page (OpenTable, Resy, Tock, SevenRooms,
 // or an OpenTable search) plus the venue's phone number; the person taps to confirm and tells Rall-e it's booked.
-// Later methods plug in here: AI phone calls ('call'), Stripe Link one-time cards ('link_wallet'), partner APIs.
+// AI restaurant calls are tracked here with method 'call' (server/voice.mjs). Later: Stripe Link one-time cards and partner APIs.
 // We never log in to anyone's Resy/OpenTable account (Resy bans third-party agents) and never handle card numbers.
 import { randomBytes } from 'node:crypto';
 import { fail } from './store.mjs';

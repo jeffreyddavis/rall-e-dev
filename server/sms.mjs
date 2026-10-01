@@ -5,6 +5,10 @@ import { Polls } from './polls.mjs';
 import { Memory } from './memory.mjs';
 import { WhatsNew } from './whatsnew.mjs';
 import { Bookings } from './bookings.mjs';
+import { VoiceCalls } from './voice.mjs';
+import { Going } from './going.mjs';
+import { Ideas } from './ideas.mjs';
+import { Favorites } from './favorites.mjs';
 import twilio from 'twilio';
 import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { fail } from './store.mjs';
@@ -79,6 +83,10 @@ export class Sms {
     this.polls = new Polls(this);
     this.whatsNew = new WhatsNew(this, { env });
     this.bookings = new Bookings(this, env, fetchImpl);
+    this.voice = new VoiceCalls(this, env, fetchImpl);
+    this.going = new Going(this);
+    this.ideas = new Ideas(this);
+    this.favorites = new Favorites(this);
     this.memory = new Memory(this); this.memory.attach(store); try { this.memory.migrate(); } catch (e) { console.error('Memory migration:', e.message); }
     this.sources = new Sources(this, env, fetchImpl); this.discovery.curated = this.sources;
     this.lastMedia = new Map();

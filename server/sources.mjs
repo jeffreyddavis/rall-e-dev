@@ -85,7 +85,7 @@ export class Sources {
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
   }
   get discovery() { return this.sms.discovery; }
-  list() { return this.db.prepare('SELECT id, url, name, city, kind, created, fetched, found, error, active FROM event_sources ORDER BY created DESC').all(); }
+  list() { return this.db.prepare("SELECT id, url, name, city, kind, created, fetched, found, error, active FROM event_sources WHERE url NOT LIKE 'rall-e:%' ORDER BY created DESC").all(); }
   async add({ url, city, name = '' }) {
     let u; try { u = new URL(String(url || '').trim()); } catch { fail(400, 'Paste a full link (https://…).'); }
     if (!/^https?:$/.test(u.protocol) || /^(localhost|127\.|10\.|192\.168\.)/.test(u.hostname)) fail(400, 'Paste a public web link.');
@@ -117,7 +117,7 @@ export class Sources {
     stats.bump('music_venues_adopted', n);
     return n;
   }
-  remove(id) { this.db.prepare('DELETE FROM curated_events WHERE source=?').run(id); return this.db.prepare('DELETE FROM event_sources WHERE id=?').run(id).changes > 0; }
+  remove(id) { if (id === 'manual') fail(400, 'Remove those events one at a time below.'); this.db.prepare('DELETE FROM curated_events WHERE source=?').run(id); return this.db.prepare('DELETE FROM event_sources WHERE id=?').run(id).changes > 0; }
   async allowed(u) {
     const r = await this.fetch(`${u.origin}/robots.txt`, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(8000) }).catch(() => null);
     if (!r?.ok) return true;
@@ -133,6 +133,7 @@ export class Sources {
   }
   async refresh(id) {
     const src = this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id); if (!src) fail(404, 'No such source.');
+    if (src.url.startsWith('rall-e:')) return { found: src.found, error: null }; // added by hand, nothing to fetch
     const done = (found, kind, error = null) => { this.db.prepare('UPDATE event_sources SET fetched=?, found=?, kind=COALESCE(?, kind), error=? WHERE id=?').run(Date.now(), found, kind, error, id); return { found, error }; };
     try {
       const u = new URL(src.url);
@@ -143,7 +144,11 @@ export class Sources {
       let raw, kind;
       if (/text\/calendar/i.test(type) || /^\s*BEGIN:VCALENDAR/.test(body)) { raw = parseIcs(body, src.lng); kind = 'calendar feed'; }
       else {
-        raw = parseJsonLd(body); kind = 'event page';
+        // Localist (many universities, museums, cities) has an open JSON API; prefer it over the page.
+        const viaLocalist = /localist/i.test(body) ? await this.localist(u).catch(() => []) : [];
+        raw = viaLocalist.length ? viaLocalist : parseJsonLd(body); kind = viaLocalist.length ? 'Localist calendar' : 'event page';
+        // A calendar feed the page links to or its CMS exposes (The Events Calendar, CivicPlus, etc.) beats AI reading.
+        if (!raw.length) { const feed = await this.findFeed(u, body, src.lng ?? -100).catch(() => null); if (feed?.events.length) { raw = feed.events; kind = 'calendar feed (found on page)'; } }
         if (!raw.length) {
           // Reading a page with AI costs money: when the text hasn't changed since last time, keep the events we have.
           const text = pageText(body), h = short(text);
@@ -162,6 +167,67 @@ export class Sources {
       return done(events.length, kind, raw.length && !events.length ? 'No upcoming events found in the next 90 days.' : raw.length ? null : 'No events found on that page.');
     } catch (error) { return done(0, null, String(error.message).slice(0, 160)); }
   }
+  // Localist calendars: /api/2/events (public reads). One entry per upcoming occurrence.
+  async localist(u) {
+    const out = [];
+    for (let page = 1; page <= 3; page++) {
+      const r = await this.fetch(`${u.origin}/api/2/events?days=90&pp=100&page=${page}`, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+      if (!r.ok || !/json/.test(r.headers.get('content-type') || '')) break;
+      const d = await r.json();
+      for (const { event: e } of d.events || []) for (const { event_instance: i } of e.event_instances || []) {
+        const start = String(i.start || '');
+        out.push({ title: e.title, date: start.slice(0, 10), time: i.all_day ? '' : start.slice(11, 16), venue: e.location_name || e.location || '', address: [e.address, e.geo?.city, e.geo?.state].filter(Boolean).join(', '),
+          lat: Number(e.geo?.latitude) || undefined, lng: Number(e.geo?.longitude) || undefined, price: e.free ? 'Free' : e.ticket_cost || '', url: e.ticket_url || e.localist_url, image: e.photo_url || null, description: String(e.description_text || '').replace(/\s+/g, ' ').slice(0, 300) });
+      }
+      if (!d.page?.next_page) break;
+    }
+    return out;
+  }
+  // Calendar feeds hiding behind a page: <link rel="alternate" type="text/calendar">, .ics / ?ical=1 / webcal links,
+  // CivicPlus iCalendar.aspx feeds, and The Events Calendar's /events/?ical=1. Returns merged events from up to 5 feeds.
+  async findFeed(u, html, lng = -100) {
+    const abs = h => { try { return new URL(h.replace(/^webcal:/i, 'https:').replace(/&amp;/g, '&'), u).href; } catch { return ''; } };
+    const links = [...html.matchAll(/<link[^>]+type=["']text\/calendar["'][^>]*>/gi)].map(m => /href=["']([^"']+)/i.exec(m[0])?.[1]).filter(Boolean)
+      .concat([...html.matchAll(/href=["']([^"'#]+)["']/gi)].map(m => m[1]).filter(h => /\.ics\b|[?&]ical=1|^webcal:|icalendar\.aspx/i.test(h)));
+    const tribe = /tribe-events|the-events-calendar/i.test(html) ? [`${u.origin}/events/?ical=1`] : [];
+    const candidates = [...new Set([...links.map(abs), ...tribe].filter(Boolean))].slice(0, 8), events = [];
+    let used = 0;
+    for (const c of candidates) {
+      if (used >= 5) break;
+      const cu = new URL(c); if (!(await this.allowed(cu))) continue;
+      const r = await this.fetch(c, { headers: { 'User-Agent': UA, Accept: 'text/calendar, text/html;q=0.5' }, signal: AbortSignal.timeout(15000), redirect: 'follow' }).catch(() => null);
+      if (!r?.ok) continue;
+      const text = (await r.text()).slice(0, 3_000_000);
+      if (/^\s*BEGIN:VCALENDAR/.test(text)) { events.push(...parseIcs(text, lng)); used++; continue; }
+      // CivicPlus' iCalendar.aspx page lists one feed per calendar category.
+      if (/icalendar\.aspx/i.test(c)) for (const f of [...new Set([...text.matchAll(/href=["']([^"']*iCalendar\.aspx\?[^"']*catID=[^"']+)["']/gi)].map(m => abs(m[1])))].slice(0, 4)) {
+        const fr = await this.fetch(f, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000) }).catch(() => null);
+        const ft = fr?.ok ? await fr.text() : ''; if (/^\s*BEGIN:VCALENDAR/.test(ft)) { events.push(...parseIcs(ft, lng)); used++; }
+      }
+    }
+    return { events };
+  }
+  // One-off events the team adds by hand (supper clubs, pop-ups, night markets: places with no feed at all).
+  manualSource() {
+    let src = this.db.prepare("SELECT * FROM event_sources WHERE url='rall-e:manual'").get();
+    if (!src) { this.db.prepare("INSERT INTO event_sources (id, url, name, city, created, kind) VALUES ('manual', 'rall-e:manual', 'Added by the team', 'Anywhere', ?, 'added by hand')").run(Date.now()); src = this.db.prepare("SELECT * FROM event_sources WHERE id='manual'").get(); }
+    return src;
+  }
+  async addEvent({ title, date, time = '', venue = '', address = '', city = '', price = '', url = '', description = '' }) {
+    const t = String(title || '').trim(); if (!t) fail(400, 'Give the event a name.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) fail(400, 'Pick a date.');
+    if (!String(city || '').trim()) fail(400, 'Which city is it in?');
+    const place = await this.discovery.geocode(String(city).trim()); if (place?.lat == null) fail(400, 'I couldn’t find that city. Try "Austin, TX".');
+    const src = { ...this.manualSource(), city: place.label, lat: place.lat, lng: place.lng };
+    const e = await this.shape({ title: t.slice(0, 120), date, time: /^\d{1,2}:\d{2}$/.test(time) ? time : '', venue: String(venue).trim(), address: String(address).trim(), price: String(price).trim(), url: /^https?:\/\//.test(url) ? url : '', description: String(description).trim() }, src);
+    e.source = 'Added by the team';
+    registerEvent(e); this.db.prepare('INSERT OR REPLACE INTO curated_events VALUES (?,?,?,?,?,?)').run(e.id, 'manual', e.localDate, e.lat, e.lng, JSON.stringify(e));
+    this.db.prepare("UPDATE event_sources SET found=(SELECT COUNT(*) FROM curated_events WHERE source='manual'), fetched=? WHERE id='manual'").run(Date.now());
+    stats.bump('manual_events_added');
+    return this.manualEvents();
+  }
+  manualEvents() { return this.db.prepare("SELECT id, day, data FROM curated_events WHERE source='manual' AND day >= ? ORDER BY day").all(new Date(Date.now() - DAY).toISOString().slice(0, 10)).map(r => { const e = JSON.parse(r.data); return { id: r.id, title: e.short, date: r.day, time: e.time, venue: e.venue, area: e.area, url: e.url }; }); }
+  removeEvent(id) { this.db.prepare("DELETE FROM curated_events WHERE source='manual' AND id=?").run(String(id || '')); this.db.prepare("UPDATE event_sources SET found=(SELECT COUNT(*) FROM curated_events WHERE source='manual') WHERE id='manual'").run(); return this.manualEvents(); }
   // Claude reads a page that has no structured event data.
   async extract(text, src) {
     const agent = this.sms.flow.agent; if (!agent?.key) return [];
@@ -208,7 +274,7 @@ export class Sources {
   }
   schedule() {
     if (this.timer) return;
-    const tick = async () => { for (const s of this.db.prepare('SELECT id FROM event_sources WHERE active=1 AND (fetched IS NULL OR fetched < ?)').all(Date.now() - 12 * 3600000)) await this.refresh(s.id).catch(() => {}); };
+    const tick = async () => { for (const s of this.db.prepare("SELECT id FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND (fetched IS NULL OR fetched < ?)").all(Date.now() - 12 * 3600000)) await this.refresh(s.id).catch(() => {}); };
     this.timer = setInterval(() => tick().catch(() => {}), 3600000); this.timer.unref?.();
     setTimeout(() => tick().catch(() => {}), 60000).unref?.();
   }

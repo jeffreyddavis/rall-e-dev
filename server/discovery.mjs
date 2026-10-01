@@ -26,7 +26,9 @@ const iso = d => new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const art = category => ({ dinner: 'dinner', food: 'dinner', comedy: 'comedy', music: 'rooftop', 'live shows': 'rooftop', nightlife: 'rooftop', nature: 'trail', outdoors: 'trail', museums: 'museum', arts: 'museum', theatre: 'comedy', sports: 'rooftop' })[category] || 'rooftop';
 function when(localDate, localTime) {
   if (!localDate) return 'See listing for times';
-  const d = new Date(`${localDate}T${localTime || '12:00:00'}`);
+  // The date is the venue's local calendar day. Noon UTC avoids shifting it
+  // when the server happens to run east of UTC.
+  const d = new Date(`${localDate}T12:00:00Z`);
   const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   if (!localTime) return day;
   const [h, m] = localTime.split(':').map(Number);
@@ -43,7 +45,7 @@ const PLACE_QUERIES = { dinner: 'restaurants', food: 'restaurants', nightlife: '
 export class Discovery {
   constructor(store, env = process.env, fetchImpl = globalThis.fetch) {
     this.store = store; this.db = store.db; this.fetch = fetchImpl;
-    this.keys = { ticketmaster: env.TICKETMASTER_API_KEY || '', seatgeek: env.SEATGEEK_CLIENT_ID || '', google: env.GOOGLE_MAPS_API_KEY || '', gracenote: env.GRACENOTE_API_KEY || '', serp: env.SERP_API_KEY || '', jambase: env.JAMBASE_KEY || '' };
+    this.keys = { ticketmaster: env.TICKETMASTER_API_KEY || '', seatgeek: env.SEATGEEK_CLIENT_ID || '', google: env.GOOGLE_MAPS_API_KEY || '', gracenote: env.GRACENOTE_API_KEY || '', serp: env.SERP_API_KEY || '', jambase: env.JAMBASE_KEY || '', usda: env.USDA_LOCALFOOD_KEY || '' };
     this.base = (env.PUBLIC_BASE_URL || 'https://rall-e.ai').replace(/\/$/, '');
     this.db.exec(`CREATE TABLE IF NOT EXISTS discovered_events (id TEXT PRIMARY KEY, data TEXT NOT NULL, fetched INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS profiles (phone TEXT PRIMARY KEY, location TEXT, updated INTEGER NOT NULL);
@@ -93,6 +95,8 @@ export class Discovery {
         const u = new URL(site), UA = { 'User-Agent': 'Mozilla/5.0 (compatible; Rall-e event finder; +https://rall-e.ai)' };
         const page = async url => { if (!(await this.curated.allowed(new URL(url)))) return ''; const r = await this.fetch(url, { headers: UA, signal: AbortSignal.timeout(10000), redirect: 'follow' }); return r.ok ? (await r.text()).slice(0, 1_500_000) : ''; };
         let html = await page(u.href), found = parseJsonLd(html);
+        if (!found.length && /localist/i.test(html)) found = await this.curated.localist(u).catch(() => []);
+        if (!found.length) { const f = await this.curated.findFeed(u, html, e.lng ?? -100).catch(() => null); if (f?.events.length) found = f.events; }
         const link = re => [...html.matchAll(/href="([^"#]+)"/gi)].map(m => m[1]).find(h => re.test(h));
         const ics = !found.length && link(/\.ics\b|[?&]ical=1|webcal:/i);
         if (ics) { const r = await this.fetch(new URL(ics.replace(/^webcal:/, 'https:'), u).href, { headers: UA, signal: AbortSignal.timeout(10000) }).catch(() => null); if (r?.ok) found = parseIcs(await r.text(), e.lng ?? -100); }
@@ -282,6 +286,10 @@ export class Discovery {
     const eventy = !category || ['music', 'live shows', 'comedy', 'sports', 'theatre', 'arts', 'nightlife'].includes(category) || /show|concert|game|comedy|music|theat|festival|event/i.test(what);
     const placey = !category || PLACE_QUERIES[category] || /eat|dinner|brunch|lunch|drink|bar|restaurant|museum|park|hike|coffee|bowling|golf|spa|climb/i.test(what) || !eventy;
     if (this.keys.ticketmaster && eventy) tasks.push(this.ticketmaster(loc, what, category, start, end).catch(e => { console.error('Ticketmaster:', e.message); return []; }));
+    // Farmers markets, farm stands, u-pick and agritourism: USDA Local Food Portal (free key). PickYourOwn.org forbids
+    // republishing, so it's never ingested.
+    const farmy = /farmers'? ?markets?|farm ?stands?|\bu-?pick\b|pick[- ]your[- ]own|(apple|berry|strawberr|peach|pumpkin|blueberr)\w* (picking|patch)|pumpkin patch|orchards?|agritourism|corn maze|hayrides?|tree farm|farm (visit|tour|day)/i.test(what);
+    if (this.keys.usda && farmy && loc.lat != null) tasks.push(this.usda(loc, what).catch(e => { console.error('USDA:', e.message); return []; }));
     if (this.keys.jambase && musicy && loc.lat != null) tasks.push(this.jambase(loc, start, end).catch(e => { console.error('JamBase:', e.message); return []; }));
     if (this.keys.seatgeek && eventy) tasks.push(this.seatgeek(loc, what, category, start, end).catch(e => { console.error('SeatGeek:', e.message); return []; }));
     if (this.keys.google && (placey || musicy) && loc.lat != null) tasks.push(this.places(loc, musicy && !placey ? `${genre ? `${genre} ` : ''}live music bars and small music venues` : what, category, date)
@@ -326,6 +334,28 @@ export class Discovery {
         price: price ? Math.round(price) : null, priceText: price ? `$${Math.round(price)}` : 'See listing', capacity: v.maximumAttendeeCapacity || null, age: 'See listing',
         url: off.url || ev.url, image: ev.image || null,
         description: `${acts.length > 1 ? `${acts.join(', ')}. ` : ''}Live music at ${v.name || 'a local venue'}${v.maximumAttendeeCapacity ? ` (holds about ${v.maximumAttendeeCapacity})` : ''}. via JamBase` });
+    });
+  }
+  // USDA Local Food Portal directories (self-reported, so hours can be stale: check_places before recommending a day).
+  async usda(loc, what) {
+    const dirs = /market/i.test(what) && !/farm ?stand|on-?farm/i.test(what) ? ['farmersmarket'] : ['agritourism', 'onfarmmarket'];
+    const lists = await Promise.all(dirs.map(async dir => {
+      const k = `usda|${dir}|${loc.lat.toFixed(1)},${loc.lng.toFixed(1)}`, hit = this.db.prepare('SELECT data FROM serp_cache WHERE key=? AND at>?').get(k, Date.now() - 7 * DAY);
+      if (hit) return JSON.parse(hit.data);
+      const d = await this.get(`https://www.usdalocalfoodportal.com/api/${dir}/?${new URLSearchParams({ apikey: this.keys.usda, x: loc.lng.toFixed(4), y: loc.lat.toFixed(4), radius: '25' })}`, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Rall-e; +https://rall-e.ai)' } });
+      const rows = (Array.isArray(d) ? d : d?.data || []).map(r => ({ ...r, _dir: dir }));
+      this.db.prepare('INSERT OR REPLACE INTO serp_cache VALUES (?,?,?)').run(k, JSON.stringify(rows), Date.now());
+      return rows;
+    }));
+    const pick = (r, re) => Object.entries(r).filter(([k, v]) => re.test(k) && v && typeof v === 'string').map(([, v]) => v.trim()).filter(Boolean);
+    return lists.flat().slice(0, 12).map(r => {
+      const lat = Number(r.location_y ?? r.latitude), lng = Number(r.location_x ?? r.longitude), season = pick(r, /season\d*(date|time)|hours|operation_?(month|time)/i).slice(0, 3).join('; ');
+      const name = String(r.listing_name || r.name || 'Local farm').trim(), site = [r.media_website, r.website].find(v => /^https?:/.test(v || '')) || null;
+      return this.shape({ id: `ud_${short(`${r._dir}|${r.listing_id || name}|${r.location_address || ''}`)}`, source: 'USDA Local Food Portal', kind: 'place', category: 'nature',
+        short: name.slice(0, 100), venue: name, area: [r.location_city, r.location_state].filter(Boolean).join(', '), address: r.location_address || null,
+        lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, time: season ? `Season: ${season.slice(0, 80)}` : 'Check hours', price: null, priceText: 'See listing',
+        website: site, url: site || 'https://www.usdalocalfoodportal.com/', rating: null,
+        description: `${r._dir === 'farmersmarket' ? 'Farmers market' : r._dir === 'agritourism' ? 'Farm visit / agritourism' : 'On-farm market'}${r.listing_desc ? `: ${String(r.listing_desc).slice(0, 160)}` : ''}. Hours are self-reported, so check before going.` });
     });
   }
   async ticketmaster(loc, what, category, start, end) {

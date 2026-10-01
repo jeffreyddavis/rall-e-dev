@@ -11,7 +11,9 @@ mkdir -p "$work"
 rsync -a --delete --exclude node_modules --exclude .git --exclude .local --exclude .git --exclude data --exclude dist --exclude .env --exclude test-results --exclude screenshots --exclude design-reference "$repo/" "$work/"
 cd "$work"
 if [ ! -d node_modules ] || ! cmp -s package-lock.json node_modules/.lock-copy; then npm ci --no-audit --no-fund --ignore-scripts >/dev/null && cp package-lock.json node_modules/.lock-copy; fi
-echo "== Tests =="; node --test test/*.test.mjs 2>&1 | grep -E '^# (pass|fail)'; node --test test/*.test.mjs >/dev/null 2>&1 || { echo 'Tests failed; nothing deployed.'; exit 1; }
+echo "== Tests =="
+node --test --test-reporter=tap test/*.test.mjs > "$work/test.log" 2>&1 || { tail -n 80 "$work/test.log"; echo 'Tests failed; nothing deployed.'; exit 1; }
+grep -E '^# (pass|fail)' "$work/test.log"
 echo "== Build =="; npx vite build >/dev/null && ls dist/index.html >/dev/null
 chmod -R u=rwX,go=rX package.json package-lock.json server dist
 tar -czf /tmp/rally-sms-release.tar.gz --owner=0 --group=0 package.json package-lock.json server dist
@@ -22,9 +24,9 @@ op=$(get SMS_OPERATOR_KEY); [ ${#op} -ge 24 ] || { echo 'SMS_OPERATOR_KEY missin
 { echo "SMS_MODE=$mode"; echo 'PUBLIC_BASE_URL=https://rall-e.ai'; echo "SMS_OPERATOR_KEY=$op"
   if [ "$mode" = live ]; then
     for k in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_FROM_NUMBER TWILIO_MESSAGING_SERVICE_SID SMS_ALLOWED_RECIPIENTS; do [ -n "$(get $k)" ] || { echo "Set $k in .env" >&2; exit 1; }; done
-    grep -E '^(TWILIO_[A-Z_]+|ANTHROPIC_API_KEY|VAULT_KEY|TICKETMASTER_API_KEY|SEATGEEK_CLIENT_ID|GOOGLE_MAPS_API_KEY|GRACENOTE_API_KEY|SERP_API_KEY|SENDBLUE_[A-Z_]+|MESSAGING_PROVIDER|STRIPE_SECRET_KEY|STRIPE_PUBLISHABLE_KEY|ANTHROPIC_MODEL|ANTHROPIC_ADMIN_KEY|OPENAI_API_KEY|OPENAI_MODEL|OPENAI_REASONING_EFFORT|OPS_VIEWER_KEY|IPINFO_TOKEN|JAMBASE_KEY|ANTHROPIC_MONTHLY_BUDGET_USD|GOOGLE_FREE_[A-Z_]+|ANTHROPIC_EFFORT|SMS_AGENT|SMS_ALLOWED_RECIPIENTS|SMS_DAILY_LIMIT|SMS_CONVERSATION_DAILY_LIMIT|SMS_PER_RECIPIENT_DAILY_LIMIT)=.' "$repo/.env" | tr -d '\r'
+    grep -E '^(TWILIO_[A-Z_]+|ANTHROPIC_API_KEY|VAULT_KEY|TICKETMASTER_API_KEY|SEATGEEK_CLIENT_ID|GOOGLE_MAPS_API_KEY|GRACENOTE_API_KEY|SERP_API_KEY|SENDBLUE_[A-Z_]+|MESSAGING_PROVIDER|STRIPE_SECRET_KEY|STRIPE_PUBLISHABLE_KEY|ANTHROPIC_MODEL|ANTHROPIC_ADMIN_KEY|OPENAI_API_KEY|OPENAI_MODEL|OPENAI_REASONING_EFFORT|OPS_VIEWER_KEY|IPINFO_TOKEN|JAMBASE_KEY|USDA_LOCALFOOD_KEY|VAPI_API_KEY|VAPI_PHONE_NUMBER_ID|VAPI_CALLS_ENABLED|VAPI_DAILY_LIMIT|ANTHROPIC_MONTHLY_BUDGET_USD|GOOGLE_FREE_[A-Z_]+|ANTHROPIC_EFFORT|SMS_AGENT|SMS_ALLOWED_RECIPIENTS|SMS_DAILY_LIMIT|SMS_CONVERSATION_DAILY_LIMIT|SMS_PER_RECIPIENT_DAILY_LIMIT)=.' "$repo/.env" | tr -d '\r'
   fi; } > "$envfile"
-[ "$mode" = live ] && { grep -q '^ANTHROPIC_API_KEY=.' "$envfile" && echo 'AI texting agent: ON' || echo 'AI texting agent: OFF (no ANTHROPIC_API_KEY)'; grep -q '^VAULT_KEY=.' "$envfile" && echo 'Vault: ON' || echo 'Vault: OFF (no VAULT_KEY)'; grep -q '^STRIPE_SECRET_KEY=sk_' "$envfile" && echo 'Card storage: ON (Stripe)' || echo 'Card storage: OFF (no Stripe keys)'; echo "Discovery sources: $(grep -oE '^(TICKETMASTER_API_KEY|SEATGEEK_CLIENT_ID|GOOGLE_MAPS_API_KEY|GRACENOTE_API_KEY|SERP_API_KEY|JAMBASE_KEY)=.' "$envfile" | cut -d_ -f1 | tr '\n' ' ')"; }
+[ "$mode" = live ] && { grep -q '^ANTHROPIC_API_KEY=.' "$envfile" && echo 'AI texting agent: ON' || echo 'AI texting agent: OFF (no ANTHROPIC_API_KEY)'; grep -q '^VAULT_KEY=.' "$envfile" && echo 'Vault: ON' || echo 'Vault: OFF (no VAULT_KEY)'; grep -q '^STRIPE_SECRET_KEY=sk_' "$envfile" && echo 'Card storage: ON (Stripe)' || echo 'Card storage: OFF (no Stripe keys)'; echo "Discovery sources: $(grep -oE '^(TICKETMASTER_API_KEY|SEATGEEK_CLIENT_ID|GOOGLE_MAPS_API_KEY|GRACENOTE_API_KEY|SERP_API_KEY|JAMBASE_KEY|USDA_LOCALFOOD_KEY)=.' "$envfile" | cut -d_ -f1 | tr '\n' ' ')"; }
 echo "== Upload + activate =="
 scp -q /tmp/rally-sms-release.tar.gz "$repo/scripts/deploy-sms.sh" rally:/home/ubuntu/
 scp -q "$envfile" rally:/home/ubuntu/rally-demo.env

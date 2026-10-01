@@ -32,7 +32,7 @@ export function removePerson(sms, phone) {
     }
   }
   for (const table of ['sms_threads', 'sms_optins', 'signup_codes', 'vault_profiles', 'vault_links', 'vault_audit', 'profiles', 'location_links', 'imessage_nudges', 'phone_services', 'sms_cards', 'profile_photos', 'me_links', 'waitlist']) del(db, have, table, 'phone=?', phone);
-  del(db, have, 'memory_facts', 'person=?', phone); del(db, have, 'update_prefs', 'phone=?', phone); del(db, have, 'bookings', 'phone=?', phone); del(db, have, 'update_sent', 'phone=?', phone); del(db, have, 'memory_signals', 'person=?', phone); del(db, have, 'invite_links', 'owner=?', phone); del(db, have, 'invite_uses', 'invitee=? OR owner=?', phone, phone);
+  del(db, have, 'memory_facts', 'person=?', phone); del(db, have, 'update_prefs', 'phone=?', phone); sms.voice?.wipe(phone); del(db, have, 'bookings', 'phone=?', phone); del(db, have, 'going', 'phone=?', phone); sms.favorites?.wipe(phone); sms.ideas?.wipe(phone); del(db, have, 'update_sent', 'phone=?', phone); del(db, have, 'memory_signals', 'person=?', phone); del(db, have, 'invite_links', 'owner=?', phone); del(db, have, 'invite_uses', 'invitee=? OR owner=?', phone, phone);
   del(db, have, 'host_contacts', 'phone=?', phone);
   // An opt-out (STOP) is kept on purpose so they are never texted again by mistake.
   if (!sms.testers.has(phone)) sms.allowed.delete(phone);
