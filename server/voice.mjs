@@ -31,13 +31,19 @@ export class VoiceCalls {
       signal: AbortSignal.timeout(12000)
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Vapi HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(/daily outbound call limit/i.test(data?.message || '')
+        ? 'Vapi outbound daily limit reached.' : `Vapi HTTP ${response.status}`);
+      error.httpStatus = response.status;
+      error.outboundLimit = /daily outbound call limit/i.test(data?.message || '');
+      throw error;
+    }
     return data;
   }
   async outboundReady() {
     const number = await this.api(`/phone-number/${encodeURIComponent(this.numberId)}`);
-    // Vapi's own free numbers cannot dial out; an imported provider number is required.
-    if (number.provider === 'vapi' || !number.number || number.status !== 'active') fail(503, 'Restaurant calls need an outbound-capable Vapi number.');
+    // Vapi may apply an outbound quota to its own numbers; only a call attempt can verify capacity.
+    if (!number.number || number.status !== 'active') fail(503, 'Restaurant calls need an active Vapi number.');
   }
   async destination(event) {
     if (!event?.placeId || !this.sms.discovery?.keys?.google) fail(400, 'I need a verified restaurant listing to call.');
@@ -97,10 +103,11 @@ export class VoiceCalls {
       return { id, bookingId, status: 'queued' };
     } catch (error) {
       // A timeout can happen after Vapi accepted a call. Keep it pending and block retries.
-      const rejected = /^Vapi HTTP 4\d\d$/.test(error.message);
+      const rejected = error.httpStatus >= 400 && error.httpStatus < 500;
       this.db.prepare('UPDATE voice_calls SET status=?,result=?,updated=? WHERE id=?').run(rejected ? 'failed' : 'unknown', rejected ? 'start_rejected' : 'start_unknown', Date.now(), id);
       if (rejected) this.sms.bookings.update(phone, bookingId, { status: 'failed' });
       if (!rejected) fail(503, 'I could not verify whether the call started. Please do not retry yet.');
+      if (error.outboundLimit) fail(503, 'Restaurant calls have reached the provider’s outbound limit. Please use the booking link for now.');
       throw error;
     }
   }

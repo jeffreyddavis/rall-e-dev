@@ -6,13 +6,15 @@ import { Sms } from '../server/sms.mjs';
 const MEMBER = '+13107770921', VENUE = '+13107770922';
 const DATE = `${new Date().getFullYear() + 1}-10-03`;
 const EVENT = { id: 'gp_restaurant', placeId: 'place-123', venue: 'The Test Kitchen', short: 'The Test Kitchen' };
-function setup(provider = 'twilio') {
+function setup(provider = 'twilio', outboundLimit = false) {
   const store = new Store(':memory:'), requests = [];
   const env = { SMS_MODE: 'live', VAPI_CALLS_ENABLED: 'live', VAPI_API_KEY: 'test-vapi-key', VAPI_PHONE_NUMBER_ID: 'voice-number-id',
     GOOGLE_MAPS_API_KEY: 'test-google-key', SMS_OPERATOR_KEY: 'a-test-presenter-password-over-24',
     SMS_ALLOWED_RECIPIENTS: MEMBER, PUBLIC_BASE_URL: 'https://rall-e.ai', SMS_SEND_SPACING_MS: '0' };
   const fetchImpl = async (url, init = {}) => {
     requests.push({ url: String(url), init });
+    if (String(url).endsWith('/call') && init.method === 'POST' && outboundLimit)
+      return { ok: false, status: 400, json: async () => ({ message: "Couldn't Start Call. Numbers Bought On Vapi Have A Daily Outbound Call Limit." }), headers: new Headers() };
     const data = String(url).includes('places.googleapis.com') ? { nationalPhoneNumber: VENUE, types: ['restaurant'], businessStatus: 'OPERATIONAL' }
       : String(url).includes('/phone-number/') ? { provider, status: 'active', number: '+13105550123' }
       : String(url).endsWith('/call') && init.method === 'POST' ? { id: 'vapi-call-1', status: 'queued' }
@@ -24,11 +26,12 @@ function setup(provider = 'twilio') {
   return { store, sms, requests, options: { party: 2, date: DATE, time: '19:00', requestText: 'Please call the restaurant' } };
 }
 
-test('restaurant call needs explicit request, verified listing, and an outbound-capable number', async () => {
-  const t = setup('vapi');
+test('restaurant call needs explicit request and handles the Vapi number outbound limit', async () => {
+  const t = setup('vapi', true);
   await assert.rejects(t.sms.voice.start(MEMBER, null, EVENT, { ...t.options, requestText: 'Book it' }), /explicitly/);
-  await assert.rejects(t.sms.voice.start(MEMBER, null, EVENT, t.options), /outbound-capable/);
-  assert.equal(t.requests.filter(r => r.url === 'https://api.vapi.ai/call').length, 0);
+  await assert.rejects(t.sms.voice.start(MEMBER, null, EVENT, t.options), /provider’s outbound limit/);
+  assert.equal(t.requests.filter(r => r.url === 'https://api.vapi.ai/call').length, 1);
+  assert.equal(t.sms.voice.list(MEMBER)[0].status, 'failed');
   t.store.close();
 });
 
