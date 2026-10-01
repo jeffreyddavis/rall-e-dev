@@ -30,4 +30,4 @@ Completed on 2026-10-01: controlled calls verified the imported number's connect
 
 Before setting `VAPI_CALLS_ENABLED=live`, make a controlled call from the imported number to Rall-e's own automated voice line. Verify connection, the authenticated production callback, and structured extraction. Use a synthetic test owner so `sms.deliver()` cannot text a tester. Back up the database before inserting any controlled-test records, then remove those records after verification.
 
-Deploy through `scripts/deploy.sh live` and verify the live switch. Calls remain limited to explicit member requests and Google-verified restaurant destinations. The release announcement stays held until Jeff approves its wording.
+Deploy through `scripts/deploy.sh live` and verify the live switch. Calls remain limited to explicit member requests and Google-verified restaurant destinations. Jeff approved sending the release announcement on 2026-10-01; it is released through the normal member update queue.
