@@ -37,12 +37,13 @@ function when(localDate, localTime) {
 const GENERIC = /\b(live|music|concerts?|shows?|events?|fun|something|anything|things?|to|do|stuff|this|next|weekend|tonight|today|tomorrow|night|comedy|comedians?|stand ?up|sports?|games?|good|cool|great|and|or|a|the|some|in|near|me|us|with|friends)\b/gi;
 const specific = (what = '', category = '') => String(what).replace(GENERIC, ' ').replace(/\s+/g, ' ').trim();
 const TM_SEGMENTS = { music: 'Music', 'live shows': 'Music', comedy: 'Comedy', sports: 'Sports', theatre: 'Arts & Theatre', arts: 'Arts & Theatre' };
+export const BIG_VENUE = /\b(arena|stadium|amphitheat(er|re)|pavilion|coliseum|colosseum|forum|dome|casino|performing arts|civic cent(er|re)|convention|auditorium|bowl|fairgrounds|speedway|ballpark|field)\b/i;
 const PLACE_QUERIES = { dinner: 'restaurants', food: 'restaurants', nightlife: 'bars and lounges', museums: 'museums and galleries', arts: 'museums and galleries', nature: 'parks and hiking trails', outdoors: 'parks and outdoor activities' };
 
 export class Discovery {
   constructor(store, env = process.env, fetchImpl = globalThis.fetch) {
     this.store = store; this.db = store.db; this.fetch = fetchImpl;
-    this.keys = { ticketmaster: env.TICKETMASTER_API_KEY || '', seatgeek: env.SEATGEEK_CLIENT_ID || '', google: env.GOOGLE_MAPS_API_KEY || '', gracenote: env.GRACENOTE_API_KEY || '', serp: env.SERP_API_KEY || '' };
+    this.keys = { ticketmaster: env.TICKETMASTER_API_KEY || '', seatgeek: env.SEATGEEK_CLIENT_ID || '', google: env.GOOGLE_MAPS_API_KEY || '', gracenote: env.GRACENOTE_API_KEY || '', serp: env.SERP_API_KEY || '', jambase: env.JAMBASE_KEY || '' };
     this.base = (env.PUBLIC_BASE_URL || 'https://rall-e.ai').replace(/\/$/, '');
     this.db.exec(`CREATE TABLE IF NOT EXISTS discovered_events (id TEXT PRIMARY KEY, data TEXT NOT NULL, fetched INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS profiles (phone TEXT PRIMARY KEY, location TEXT, updated INTEGER NOT NULL);
@@ -57,8 +58,8 @@ export class Discovery {
     // Plans keep referencing outings found earlier, including after a restart.
     for (const row of this.db.prepare('SELECT data FROM discovered_events WHERE fetched > ?').all(Date.now() - 60 * DAY)) registerEvent(JSON.parse(row.data));
   }
-  get enabled() { return Boolean(this.keys.ticketmaster || this.keys.seatgeek || this.keys.google || this.keys.gracenote || this.keys.serp); }
-  get sources() { return ['ticketmaster', 'seatgeek', 'google', 'gracenote', 'serp'].filter(k => this.keys[k]).map(k => ({ ticketmaster: 'Ticketmaster', seatgeek: 'SeatGeek', google: 'Google Places', gracenote: 'Gracenote showtimes', serp: 'Google showtimes (SerpApi)' })[k]); }
+  get enabled() { return Boolean(this.keys.jambase || this.keys.ticketmaster || this.keys.seatgeek || this.keys.google || this.keys.gracenote || this.keys.serp); }
+  get sources() { return ['ticketmaster', 'seatgeek', 'google', 'gracenote', 'serp', 'jambase'].filter(k => this.keys[k]).map(k => ({ jambase: 'JamBase (live music)', ticketmaster: 'Ticketmaster', seatgeek: 'SeatGeek', google: 'Google Places', gracenote: 'Gracenote showtimes', serp: 'Google showtimes (SerpApi)' })[k]); }
   async get(url, init = {}, timeout = 8000) {
     const response = await this.fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
     meter.call(url, response.headers);
@@ -273,20 +274,59 @@ export class Discovery {
         .catch(e => { console.error('Movies:', e.message); return null; });
       if (found?.length) { const now = Date.now(); for (const e of found) { registerEvent(e); this.db.prepare('INSERT OR REPLACE INTO discovered_events VALUES (?,?,?)').run(e.id, JSON.stringify(e), now); } return found.slice(0, 12); }
     }
+    // Live music: small local venues (bars, clubs, listening rooms) matter more than arenas. Their own calendars are
+    // pulled in as sources (adopted in the background), and Places adds the local venues themselves.
+    const musicy = category === 'music' || /\b(live music|music|gigs?|bands?|jazz|blues|open mic|dj|concerts?|acoustic|folk|punk|indie|bluegrass|reggae|singer.?songwriter)\b/i.test(what);
+    const genre = /(jazz|blues|folk|punk|indie|rock|country|hip.?hop|reggae|bluegrass|acoustic|open mic|singer.?songwriter|metal|soul|funk)/i.exec(what)?.[1];
+    if (musicy && loc.lat != null && this.curated?.adoptMusicVenues) this.curated.adoptMusicVenues(loc).catch(e => console.error('Adopt venues:', e.message));
     const eventy = !category || ['music', 'live shows', 'comedy', 'sports', 'theatre', 'arts', 'nightlife'].includes(category) || /show|concert|game|comedy|music|theat|festival|event/i.test(what);
     const placey = !category || PLACE_QUERIES[category] || /eat|dinner|brunch|lunch|drink|bar|restaurant|museum|park|hike|coffee|bowling|golf|spa|climb/i.test(what) || !eventy;
     if (this.keys.ticketmaster && eventy) tasks.push(this.ticketmaster(loc, what, category, start, end).catch(e => { console.error('Ticketmaster:', e.message); return []; }));
+    if (this.keys.jambase && musicy && loc.lat != null) tasks.push(this.jambase(loc, start, end).catch(e => { console.error('JamBase:', e.message); return []; }));
     if (this.keys.seatgeek && eventy) tasks.push(this.seatgeek(loc, what, category, start, end).catch(e => { console.error('SeatGeek:', e.message); return []; }));
-    if (this.keys.google && placey && loc.lat != null) tasks.push(this.places(loc, what, category, date).catch(e => { console.error('Places:', e.message); return []; }));
+    if (this.keys.google && (placey || musicy) && loc.lat != null) tasks.push(this.places(loc, musicy && !placey ? `${genre ? `${genre} ` : ''}live music bars and small music venues` : what, category, date)
+      .then(list => musicy ? list.filter(e => !BIG_VENUE.test(`${e.short} ${e.description || ''}`)) : list).catch(e => { console.error('Places:', e.message); return []; }));
     tasks.push(this.local(loc, { what, category, start, end }));
     const seen = new Set(), out = [];
     for (const e of (await Promise.all(tasks)).flat()) {
-      const key = `${e.short.toLowerCase().replace(/\W/g, '')}|${e.startsAt || ''}`;
+      const key = `${e.short.toLowerCase().replace(/\W/g, '')}|${(e.startsAt || e.localDate || '').slice(0, 10)}`;
       if (seen.has(key)) continue; seen.add(key); out.push(e);
+    }
+    // Music: local gigs first (venue calendars and curated sources), then smaller Ticketmaster shows, local venues, and big venues last.
+    if (musicy && !/\b(arena|stadium|big|tour|concert hall)\b/i.test(what)) {
+      const big = e => BIG_VENUE.test(e.venue || '') || (e.capacity || 0) >= 3000;
+      const rank = e => e.kind === 'place' ? 2 : big(e) ? 3 : e.source !== 'Ticketmaster' && e.source !== 'SeatGeek' ? 0 : 1;
+      out.sort((a, b) => rank(a) - rank(b));
+    }
+    // A range ("this weekend") shouldn't come back as 12 Friday rows: alternate days, keeping the order within each day.
+    if (range) {
+      const dayOf = e => e.localDate || (e.startsAt || '').slice(0, 10) || '';
+      const dated = out.filter(dayOf), undated = out.filter(e => !dayOf(e)), days = [...new Set(dated.map(dayOf))];
+      if (days.length > 1) { const by = days.map(d => dated.filter(e => dayOf(e) === d)), mixed = []; for (let i = 0; mixed.length < dated.length; i++) for (const b of by) if (b[i]) mixed.push(b[i]); out.splice(0, out.length, ...mixed, ...undated); }
     }
     const now = Date.now();
     for (const e of out) { registerEvent(e); this.db.prepare('INSERT OR REPLACE INTO discovered_events VALUES (?,?,?)').run(e.id, JSON.stringify(e), now); }
     return out.slice(0, 12);
+  }
+  // JamBase: concerts from small clubs to arenas, with venue capacity (how we tell local gigs from big shows).
+  // Trial/Developer plans have a hard monthly call quota, so results are cached 6 hours per area and date range.
+  // Developer plan terms require attribution: event descriptions say "via JamBase".
+  async jambase(loc, start, end) {
+    const from = new Date(start).toISOString().slice(0, 10), to = new Date(end - 1).toISOString().slice(0, 10), k = `jb|${loc.lat.toFixed(2)},${loc.lng.toFixed(2)}|${from}|${to}`;
+    const hit = this.db.prepare('SELECT data FROM serp_cache WHERE key=? AND at>?').get(k, Date.now() - 6 * 3600000);
+    const data = hit ? JSON.parse(hit.data) : await this.get(`https://api.data.jambase.com/v3/events?${new URLSearchParams({ geoLatitude: loc.lat.toFixed(4), geoLongitude: loc.lng.toFixed(4), geoRadiusAmount: '20', geoRadiusUnits: 'mi', eventDateFrom: from, eventDateTo: to, eventType: 'concerts', perPage: '50', sort: 'eventDate' })}`, { headers: { Authorization: `Bearer ${this.keys.jambase}` } });
+    if (!hit) this.db.prepare('INSERT OR REPLACE INTO serp_cache VALUES (?,?,?)').run(k, JSON.stringify({ events: data.events || [] }), Date.now());
+    return (data.events || []).filter(ev => ev.eventStatus !== 'cancelled' && !ev.location?.['x-isPermanentlyClosed']).map(ev => {
+      const v = ev.location || {}, a = v.address || {}, off = (ev.offers || [])[0] || {}, price = Number(off.priceSpecification?.price) || null;
+      const [d, t = ''] = String(ev.startDate || '').split('T'), name = String(ev.name || '').replace(new RegExp(` at ${String(v.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '');
+      const acts = (ev.performer || []).map(x => x.name).filter(Boolean).slice(0, 4);
+      return this.shape({ id: `jb_${short(ev.identifier || ev.url)}`, source: 'JamBase', category: 'music', short: name.slice(0, 120), venue: v.name || 'Venue TBA',
+        area: [a.addressLocality, a.addressRegion?.alternateName].filter(Boolean).join(', '), address: [a.streetAddress, a.addressLocality].filter(Boolean).join(', '),
+        lat: v.geo?.latitude ?? null, lng: v.geo?.longitude ?? null, time: when(d, t ? t.slice(0, 8) : ''), localDate: d, startsAt: t ? `${d}T${t.slice(0, 8)}` : null,
+        price: price ? Math.round(price) : null, priceText: price ? `$${Math.round(price)}` : 'See listing', capacity: v.maximumAttendeeCapacity || null, age: 'See listing',
+        url: off.url || ev.url, image: ev.image || null,
+        description: `${acts.length > 1 ? `${acts.join(', ')}. ` : ''}Live music at ${v.name || 'a local venue'}${v.maximumAttendeeCapacity ? ` (holds about ${v.maximumAttendeeCapacity})` : ''}. via JamBase` });
+    });
   }
   async ticketmaster(loc, what, category, start, end) {
     const q = new URLSearchParams({ apikey: this.keys.ticketmaster, radius: '25', unit: 'miles', size: '10', sort: 'date,asc', startDateTime: iso(start), endDateTime: iso(end) });

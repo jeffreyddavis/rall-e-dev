@@ -61,7 +61,7 @@ test('guests talk to the agent; group notifications stay deterministic; failures
     tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
     tool('make_plan', { event_id: 'dinner' }), body => { assert.match(body.messages.at(-1).content[0].content, /plan page[^\n]*\/n\/[\w-]+/); return say('Dinner at Casa Vera it is. Who is coming?'); },
     tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }, { name: 'Dave', phone: '3105550103' }] }), say('Both invited!'),
-    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
+    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know', 'whats_new', 'set_updates', 'book_table', 'update_booking', 'record_purchase', 'my_bookings'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
     say('You’re in! See you Saturday.'),
     tool('message_group', { text: 'I can drive if anyone needs a ride' }), say('Passed that along to the group.'),
     new Error('network down')
@@ -166,4 +166,23 @@ test('if Claude is down, the reply comes from the OpenAI backup with the same to
   await sms.simulate(HOST, 'you there?');
   assert.equal(last(), 'Still here!'); assert.equal(calls.filter(c => c.url.includes('anthropic')).length, 1); // skipped Claude while it's down
   store.close();
+});
+
+test('a friend on someone else\'s plan can start their own plan without touching the host\'s', async () => {
+  const t = setup([
+    tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
+    tool('make_plan', { event_id: 'dinner' }), say('Dinner it is. Who is coming?'),
+    tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }] }), say('Mike is invited!'),
+    body => { assert.ok(body.tools.some(x => x.name === 'start_own_plan')); return tool('start_own_plan', { event_ids: ['trail', 'comedy'] }); },
+    body => { assert.match(body.messages.at(-1).content[0].content, /Their own plan is started.*Itinerary.*\/n\/[\w-]+/s); return say('Your plan is set!'); }
+  ], { SMS_ALLOWED_RECIPIENTS: '+13105550102' });
+  await t.text(HOST, 'hey this is Alex'); await t.text(HOST, 'dinner please'); await t.text(HOST, 'Mike 3105550102');
+  await t.text(MIKE, 'separate from Alex: build me a plan with the trail and the comedy show');
+  const threads = t.sms.flow.threadsFor(MIKE);
+  assert.equal(threads[0].role, 'host');
+  assert.deepEqual(threads[0].s.plan.stops, ['trail', 'comedy']);
+  const alex = t.sms.flow.threadsFor(HOST)[0].s;
+  assert.deepEqual(alex.plan.stops, ['dinner']);
+  assert.ok(alex.plan.participants.some(p => p.name === 'Mike'));
+  t.store.close();
 });

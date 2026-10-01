@@ -38,6 +38,8 @@ This file covers how the project works and the rules. **`docs/STATUS.md`** cover
 | Curated sources / weather / own events | `server/sources.mjs`, `discovery.mjs` (`weather`, `customEvent`, `local`) | Sources tab in `/ops`: ICS feeds (parsed) and event pages (schema.org JSON-LD, else Claude reads the page). Respects robots.txt; refreshed every 12h; events in `curated_events`. Weather from api.weather.gov (US). Their own events get ids `cu_*`. The playbook is in `docs/DATA_SOURCES.md`. |
 | Time awareness | `server/timeline.mjs` | `localNow`, `planTiming` (the verdict line in the agent's situation), `plan.when` / `plan.progress` on the session's plan. |
 | Agent memory | `server/memory.mjs` | Per-person facts (`remember`/`forget`), behavior signals, and the capped card shown in `state()`. A person's facts are only used in their own conversation; sensitive facts only when they said them. Design: `docs/MEMORY.md`. |
+| "What's new" texts | `server/whatsnew.mjs`, `server/releases.mjs` | Release notes texted to every member when they go live (opt out: "no updates"). **Add a line to `releases.mjs` for every user-facing feature or fix** (`hold: true` until Jeff approves wording). |
+| Reservations and purchases | `server/bookings.mjs`, `src/TransactionsTab.jsx` | Booking links pre-filled for the venue's platform, the `bookings` table, and the /ops Transactions volume. Never log in to people's Resy/OpenTable accounts; card numbers never go to the AI. |
 | Group polls | `server/polls.mjs`, `src/PollPage.jsx` | Tables: `polls`, `poll_people` (one token per person), `poll_answers` (pick/rank/defer). Scoring: a pick counts as N points; a ranking gives N-1 down to 0. |
 | Discovery | `server/discovery.mjs`, `catalog.mjs` | Ticketmaster, Google Places (+photos), SerpApi movie showtimes (12h cache), and a Gracenote adapter (key pending). Found items are persisted in `discovered_events`. |
 | Other server modules | `vault.mjs`, `signup.mjs`, `og.mjs`, `stats.mjs`, `usage.mjs`, `wipe.mjs` | Vault (AES-GCM, Stripe SetupIntents), web signup/opt-in codes, OG images (JPEG), anonymous Insights, API usage, and wipes. |
@@ -119,7 +121,7 @@ Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
 4. The AI only sees masked vault data. Card numbers are never stored or sent to the AI.
 5. Operator-only actions are enforced on the server. The viewer dashboard shows no hint of them.
 6. Tests must pass, and deploys go through `scripts/deploy.sh` (tests, rollback). Push to GitHub after each round.
-7. Keep `docs/STATUS.md` (and this file) current in the same commit as the change.
+7. Keep `docs/STATUS.md` (and this file) current in the same commit as the change. User-facing changes also get a release note in `server/releases.mjs`; members are texted about it after deploy.
 8. Don't copy the unrelated "Backend" `.env` into this project.
 
 ## Other docs

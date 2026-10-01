@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Plus, ExternalLink } from 'lucide-react';
 
-// Operator-only: curated event sources per city (calendar feeds and event pages). See docs/DATA_SOURCES.md.
+// Both dashboard keys: curated event sources per city (calendar feeds and event pages). See docs/DATA_SOURCES.md.
 export default function SourcesTab({ call, ago }) {
   const [sources, setSources] = useState(null), [url, setUrl] = useState(''), [city, setCity] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(''), [error, setError] = useState('');
   const run = async (what, fn) => { setBusy(what); setError(''); try { setSources((await fn()).sources); } catch (e) { setError(e.message); } finally { setBusy(''); } };

@@ -99,3 +99,4 @@
 .src-table{width:100%;border-collapse:collapse;font-size:14px}.src-table th{text-align:left;font-weight:600;color:#6b7a82;font-size:12px;padding:6px 8px;border-bottom:1px solid #e3e9ec}
 .src-table td{padding:10px 8px;border-bottom:1px solid #eef2f4;vertical-align:top}.src-table td a{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;color:#2f89c2}
 .src-error{display:block;color:#b4462f;font-size:12px;margin-top:4px}.src-actions{white-space:nowrap}
+.tx-card .tx-big{margin:0;font-size:28px;font-weight:800;color:#1d3b4f}

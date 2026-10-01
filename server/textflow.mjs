@@ -2,6 +2,7 @@
 // and every plan change fans out to the people on that plan who are reachable by text.
 // All outbound goes through Sms.deliver(), which enforces preview mode, the tester allowlist,
 // STOP, and daily caps. Nothing here talks to Twilio directly.
+import { OFF_WORDS, ON_WORDS } from './whatsnew.mjs';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { EVENTS, MAX_STOPS, eventById, categoryFrom } from './catalog.mjs';
 import { Agent } from './agent.mjs';
@@ -265,6 +266,8 @@ export class TextFlow {
         this.reply(phone, `Rall-e: you’re set up for texts about plans you’re invited to. ${OPTIN_NOTE}`, 'optin');
       } catch (e) { if (!e.status) throw e; }
     }
+    if (OFF_WORDS.test(text) && this.sms.whatsNew) { this.sms.whatsNew.set(phone, false); this.reply(phone, 'Done: no more "what\'s new" texts. Plans and replies still come through as usual. Text "updates on" anytime to get them again.', 'update'); return true; }
+    if (ON_WORDS.test(text) && this.sms.whatsNew) { this.sms.whatsNew.set(phone, true); this.reply(phone, 'Updates are back on: I\'ll text you when something new goes live.', 'update'); return true; }
     if (/^help$/i.test(text) || optOutType === 'HELP') { this.reply(phone, this.help(threads[0])); return true; }
     if (/^(android|iphone)[.!]*$/i.test(text) && this.sms.provider === 'sendblue') {
       const android = /android/i.test(text);

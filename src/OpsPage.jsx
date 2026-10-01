@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3, CalendarRange } from 'lucide-react';
+import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3, CalendarRange, Receipt } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './ops.css';
 import Insights from './Insights.jsx';
 import SourcesTab from './SourcesTab.jsx';
+import TransactionsTab from './TransactionsTab.jsx';
 
 // Dashboard (/ops): live conversations and service usage. The operator key also gets controls to have Rall-e show off
 // a feature, send a text or wipe a conversation; other keys see only the plain dashboard, with no sign that more exists.
@@ -55,13 +56,15 @@ export default function OpsPage() {
     <nav className="ops-tabs">
       <button className={tab === 'people' ? 'on' : ''} onClick={() => setTab('people')}><Users size={15}/>Conversations</button>
       <button className={tab === 'insights' ? 'on' : ''} onClick={() => setTab('insights')}><BarChart3 size={15}/>Insights</button>
-      {!viewer && <button className={tab === 'sources' ? 'on' : ''} onClick={() => setTab('sources')}><CalendarRange size={15}/>Sources</button>}
+      <button className={tab === 'sources' ? 'on' : ''} onClick={() => setTab('sources')}><CalendarRange size={15}/>Sources</button>
+      <button className={tab === 'transactions' ? 'on' : ''} onClick={() => setTab('transactions')}><Receipt size={15}/>Transactions</button>
       <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
     </nav>
     {tab === 'people' && alerts.length > 0 && <button className={`ops-alert ${alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}`} onClick={() => setTab('usage')}>⚠ {alerts.map(c => c.name.split(' (')[0]).join(', ')} {alerts.length === 1 ? 'needs' : 'need'} attention before a demo</button>}
     {error && <p className="error ops-error" role="alert">{error}</p>}
     {tab === 'insights' && <Insights data={insights} loading={loadingInsights} onRefresh={loadInsights} ago={ago} onSaveGap={async (category, d) => { await call('gap', { category, ...d }); await loadInsights(); }}/>}
-    {tab === 'sources' && !viewer && <SourcesTab call={call} ago={ago}/>}
+    {tab === 'sources' && <SourcesTab call={call} ago={ago}/>}
+    {tab === 'transactions' && <TransactionsTab call={call} ago={ago}/>}
     {tab === 'usage' && <section className="ops-usage">
       <div className="ops-usage-head"><h2>Service usage</h2><span>{usage ? `Checked ${ago(usage.at)}` : ''}</span><button className="ops-link" disabled={loadingUsage} onClick={loadUsage}><RefreshCw size={14} className={loadingUsage ? 'spin' : ''}/>Refresh</button></div>
       {!usage && <LoaderCircle className="spin"/>}

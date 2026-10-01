@@ -8,7 +8,7 @@ import { freemem, totalmem, uptime } from 'node:os';
 const today = () => new Date().toISOString().slice(0, 10);
 const month = () => new Date().toISOString().slice(0, 7);
 const level = (used, limit) => !limit ? 'ok' : used / limit >= 0.9 ? 'critical' : used / limit >= 0.75 ? 'warn' : 'ok';
-const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'routes.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'api.weather.gov': 'weather', 'demo.tmsimg.com': 'gracenote' };
+const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'routes.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'api.weather.gov': 'weather', 'api.data.jambase.com': 'jambase', 'demo.tmsimg.com': 'gracenote' };
 const skuOf = url => {
   const u = new URL(url);
   if (u.host === 'maps.googleapis.com') return u.pathname.includes('geocode') ? 'geocoding' : 'maps';
@@ -104,6 +104,14 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
     cards.push({ id: 'serpapi', name: 'SerpApi (movie showtimes)', status: a.error ? 'unknown' : level(used, limit), meter: a.error ? null : { used, limit, unit: 'searches this month' },
       facts: [a.error ? `Account check failed: ${a.error}` : `${a.plan_searches_left ?? limit - used} searches left (${a.plan_name || 'current plan'})`, 'Each new area costs ~4 searches; theater schedules are cached 12 hours.', 'Starter: $25/mo for 1,000 searches.'],
       link: 'https://serpapi.com/manage-api-key' });
+  }
+  // JamBase (live music)
+  if (env.JAMBASE_KEY) {
+    const q = await safe(() => get('https://api.data.jambase.com/v3/quota', { headers: { Authorization: `Bearer ${env.JAMBASE_KEY}` } }));
+    const used = q.usedCalls ?? 0, limit = q.quota ?? 0;
+    cards.push({ id: 'jambase', name: 'JamBase (live music)', status: q.error ? 'unknown' : level(used, limit), meter: q.error ? null : { used, limit, unit: 'calls this period' },
+      facts: [q.error ? `Quota check failed: ${q.error}` : `${q.remainingCalls ?? limit - used} calls left (${q.plan || 'plan'}${q.periodEnd ? `, resets ${String(q.periodEnd).slice(0, 10)}` : ''}${q.blocksAtQuota ? ', hard stop at the limit' : ''})`, 'Used for live-music searches; cached 6 hours per area and dates.', 'Developer plan is free for non-commercial use (attribution required); Startup is $500/mo.'],
+      link: 'https://data.jambase.com/' });
   }
   // Ticketmaster (events)
   if (sms.discovery.keys.ticketmaster) {

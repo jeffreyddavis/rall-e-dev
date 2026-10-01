@@ -81,6 +81,7 @@ export class Sources {
         created INTEGER NOT NULL, fetched INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT, active INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS curated_events (id TEXT PRIMARY KEY, source TEXT NOT NULL, day TEXT NOT NULL, lat REAL, lng REAL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS curated_events_day ON curated_events(day);`);
+    try { this.db.exec('ALTER TABLE event_sources ADD COLUMN text_hash TEXT'); } catch {}
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
   }
   get discovery() { return this.sms.discovery; }
@@ -97,6 +98,24 @@ export class Sources {
     stats.bump('sources_added');
     await this.refresh(id).catch(() => {});
     return this.list().find(s => s.id === id);
+  }
+  // Small local music venues near someone who asked about live music: their own websites become sources (up to 8 per
+  // area, once a week), read on the normal schedule, so the next search already knows who's playing where.
+  async adoptMusicVenues(loc) {
+    if (!this.discovery?.keys?.google) return 0;
+    const k = `music|${loc.lat.toFixed(1)},${loc.lng.toFixed(1)}`;
+    this.db.exec('CREATE TABLE IF NOT EXISTS source_adoptions (k TEXT PRIMARY KEY, at INTEGER NOT NULL)');
+    if (this.db.prepare('SELECT 1 FROM source_adoptions WHERE k=? AND at>?').get(k, Date.now() - 7 * DAY)) return 0;
+    this.db.prepare('INSERT OR REPLACE INTO source_adoptions VALUES (?, ?)').run(k, Date.now());
+    const { BIG_VENUE } = await import('./discovery.mjs');
+    const reviews = t => Number(/\((\d+)\)/.exec(t.rating || '')?.[1] || 0);
+    const found = await this.discovery.places(loc, 'live music bars and small music venues', 'music');
+    const picks = found.filter(v => v.website && !BIG_VENUE.test(`${v.short} ${v.description || ''}`) && reviews(v) < 8000
+      && !this.db.prepare('SELECT 1 FROM event_sources WHERE url=?').get(v.website)).slice(0, 8);
+    let n = 0;
+    for (const v of picks) { try { await this.add({ url: v.website, city: loc.label, name: v.short, auto: true }); n++; } catch {} }
+    stats.bump('music_venues_adopted', n);
+    return n;
   }
   remove(id) { this.db.prepare('DELETE FROM curated_events WHERE source=?').run(id); return this.db.prepare('DELETE FROM event_sources WHERE id=?').run(id).changes > 0; }
   async allowed(u) {
@@ -123,7 +142,16 @@ export class Sources {
       const body = (await r.text()).slice(0, 3_000_000), type = r.headers.get('content-type') || '';
       let raw, kind;
       if (/text\/calendar/i.test(type) || /^\s*BEGIN:VCALENDAR/.test(body)) { raw = parseIcs(body, src.lng); kind = 'calendar feed'; }
-      else { raw = parseJsonLd(body); kind = 'event page'; if (!raw.length) { raw = await this.extract(pageText(body), src); kind = 'page (read by AI)'; } }
+      else {
+        raw = parseJsonLd(body); kind = 'event page';
+        if (!raw.length) {
+          // Reading a page with AI costs money: when the text hasn't changed since last time, keep the events we have.
+          const text = pageText(body), h = short(text);
+          if (src.text_hash === h && src.found > 0) return done(src.found, 'page (read by AI)');
+          raw = await this.extract(text, src); kind = 'page (read by AI)';
+          this.db.prepare('UPDATE event_sources SET text_hash=? WHERE id=?').run(h, id);
+        }
+      }
       const today = new Date().toISOString().slice(0, 10), horizon = new Date(Date.now() + 90 * DAY).toISOString().slice(0, 10);
       const upcoming = raw.filter(e => e.title && e.date >= today && e.date <= horizon).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 150);
       const events = [];
@@ -137,12 +165,12 @@ export class Sources {
   // Claude reads a page that has no structured event data.
   async extract(text, src) {
     const agent = this.sms.flow.agent; if (!agent?.key) return [];
-    const body = { model: agent.model, max_tokens: 6000, system: 'You extract upcoming public events from web page text for an event-discovery app. Only include real, specific events with a date. Never invent details.',
+    const body = { model: agent.model, max_tokens: 16000, system: 'You extract upcoming public events from web page text for an event-discovery app. Only include real, specific events with a date. Never invent details. Always answer by calling save_events exactly once (with an empty list if the page has no events).',
       tools: [{ name: 'save_events', description: 'Save the events found on the page.', input_schema: { type: 'object', properties: { events: { type: 'array', maxItems: 60, items: { type: 'object', properties: {
         title: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: 'HH:MM 24h, or empty' }, venue: { type: 'string' }, address: { type: 'string' },
         price: { type: 'string', description: 'e.g. "$20", "Free", or empty' }, url: { type: 'string', description: 'Link to the event if the page has one' }, description: { type: 'string', description: 'One sentence' },
         category: { type: 'string', enum: CATEGORIES } }, required: ['title', 'date'] } } }, required: ['events'] } }],
-      tool_choice: { type: 'tool', name: 'save_events' },
+      tool_choice: { type: 'auto' }, // forced tool choice isn't supported with this model's thinking; the system prompt requires the call
       messages: [{ role: 'user', content: `Today is ${new Date().toISOString().slice(0, 10)}. These events are in or near ${src.city}. Page: ${src.url}\n\n${text.slice(0, 60000)}` }] };
     const r = await agent.fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(120000),
       headers: { 'content-type': 'application/json', 'x-api-key': agent.key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body) });
@@ -166,13 +194,17 @@ export class Sources {
   // Curated events near someone, within the dates asked for, loosely matching what they want.
   near(loc, { what = '', category = '', start = Date.now(), end = Date.now() + 7 * DAY } = {}) {
     if (loc?.lat == null) return [];
-    const from = new Date(start).toISOString().slice(0, 10), to = new Date(end).toISOString().slice(0, 10), dLat = 0.45, dLng = 0.45 / Math.cos(loc.lat * Math.PI / 180);
+    const from = new Date(start).toISOString().slice(0, 10), to = new Date(end - 1).toISOString().slice(0, 10), dLat = 0.45, dLng = 0.45 / Math.cos(loc.lat * Math.PI / 180);
     const rows = this.db.prepare('SELECT data FROM curated_events WHERE day BETWEEN ? AND ? AND lat BETWEEN ? AND ? AND lng BETWEEN ? AND ? ORDER BY day LIMIT 200')
       .all(from, to, loc.lat - dLat, loc.lat + dLat, loc.lng - dLng, loc.lng + dLng).map(r => JSON.parse(r.data));
     const words = String(what).toLowerCase().split(/\W+/).filter(w => w.length > 3 && !/something|things|thing|this|weekend|tonight|week|with|around|near|good|some/.test(w));
     const match = e => { const hay = `${e.short} ${e.description} ${e.category} ${e.venue}`.toLowerCase(); return (!category || e.category === category || hay.includes(category)) && (!words.length || words.some(w => hay.includes(w))); };
     const hits = rows.filter(match);
-    return (hits.length ? hits : category || words.length ? [] : rows).slice(0, 8);
+    const list = hits.length ? hits : category || words.length ? [] : rows;
+    // Spread over the days asked for (a weekend search shouldn't be all Friday).
+    const byDay = [...new Set(list.map(e => e.localDate))].map(d => list.filter(e => e.localDate === d)), mixed = [];
+    for (let i = 0; mixed.length < Math.min(12, list.length); i++) for (const b of byDay) if (b[i] && mixed.length < 12) mixed.push(b[i]);
+    return mixed;
   }
   schedule() {
     if (this.timer) return;

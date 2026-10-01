@@ -16,8 +16,9 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
 - **AI:** Claude `claude-sonnet-5-5` (Messages API, tool loop). Backup: OpenAI `gpt-6-sol` with `reasoning_effort: none`, tested in a simulated outage.
 - **Discovery:**
   - Ticketmaster (free tier: only about a third of events carry prices), Google Places + photos, SerpApi showtimes (free, 250/month).
+  - JamBase live music (trial key, 09-30).
   - Pending: Gracenote (key in about a week), SeatGeek (approval).
-- **Vault:** on. Stripe is in **test** mode; the Stripe account's public name still shows "MacroFit", so rename it in the Stripe dashboard.
+- **Vault:** on. Stripe is **live** (since 09-30; cards saved in test mode are treated as gone and get re-added); the Stripe account's public name still shows "MacroFit", so rename it in the Stripe dashboard.
 - **Location guess at signup:**
   - Web signups get a welcome text that guesses their city from their internet connection (ipinfo.io, free tier; optional `IPINFO_TOKEN`) and asks "Did I get that right?".
   - Text-first signups get asked about their area code's state.
@@ -36,9 +37,11 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
   - Contact cards texted to Rall-e are saved for invites.
   - Curated event sources per city (`/ops` → Sources; see `docs/DATA_SOURCES.md`).
 - **Agent memory (Phase 1, 09-30):** per-person facts + behavior signals, a small "what I know" card in each turn, `remember`/`forget`/`what_i_know` tools, and "What Rall-e knows" on `/me/` (delete per fact). See `docs/MEMORY.md`.
-- **Tests:** 85 pass.
+- **Tests:** 92 pass.
 
 ## Open items / next
+- **Paying for things (Stripe Link for agents):** needs Stripe to register a Link OAuth client for a hosted agent (Mike/Marc asking Stripe), ideally on a new dedicated Rall-e Stripe account. Then: connect-your-Link page, spend requests (person approves each purchase), checkout on independent ticket sites. Default limits $500 per purchase and per day. AI phone calls to restaurants: Jeff pitching the team.
+- **What's new:** add a `/me` page switch for update texts and an ops view of release notes (`whatsNew.summary()`); use a distinct log kind instead of `update`.
 - **Agent memory:** Phase 2 next (nightly consolidation, episodes, recall search), then Phase 3. See `docs/MEMORY.md`.
 - **Mike's list, not built (see the recommendations in chat / below):**
   - Google Calendar sign-in (OAuth: testing mode is fine for testers; production needs Google verification). Gmail is not recommended (restricted scope needs a paid CASA security assessment).
@@ -58,6 +61,19 @@ _Last updated: 2026-09-30. Update this file with every round of work (see AGENTS
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **09-30, JamBase:** live-music searches now include JamBase concerts (`JAMBASE_KEY`), with venue capacity used to rank local gigs (under 3,000) above arena shows. Cached 6 hours per area and dates. Trial quota: 1,000 calls until Oct 15, hard stop; the `/ops` Usage tab shows calls left. Developer-plan terms: non-commercial, attribution ("via JamBase" in event descriptions).
+- **09-30, local music + LA sources:**
+  - Music searches find small venues near the person, adopt their websites as sources (up to 8 per area, weekly), and rank local gigs above arenas. Weekend searches spread across Fri–Sun.
+  - LA sources added from the team sheet; Rhode Island covered by WannaGoSee pages plus adopted venues (for Mike's mom).
+  - AI page reader fixed (forced tool choice wasn't allowed with this model), given more room, and skipped when a page's text hasn't changed (saves tokens).
+- **09-30, Stripe live:** live keys deployed (deploys can run from the VM with `C:\keys\rall-e.env` while the repo folder won't mount). `vault.mjs` records each Stripe customer's mode, so old test-mode customers and cards are dropped instead of erroring.
+- **09-30, reservations + transactions + Sources for both keys:**
+  - `book_table`: sends the venue's own booking page (OpenTable, Resy, Tock, SevenRooms, found from Google or the venue's site) with party, date and time filled in, or an OpenTable search, plus the venue's phone. "Booked it" → `update_booking` (the group is told if it's on the plan). `record_purchase` for tickets and other buys. Code: `server/bookings.mjs`.
+  - `/ops` → Transactions: completed reservations and purchases, dollars and counts for 7/30 days and all time (lab 555 numbers excluded). Both keys see it.
+  - `/ops` → Sources is now open to the viewer key too (Mike and Marc can add and remove sources).
+  - We never log in to Resy/OpenTable for people (Resy bans third-party agents).
+- **09-30, "what's new" texts:** when a release note in `server/releases.mjs` goes live, every member gets a short text (9 AM to 8 PM their time, not mid-conversation, at most one every 3 hours, combined). "no updates" / "updates on" by text, or ask the agent (`set_updates`, `whats_new`). New members don't get old news. First announcement (this feature + the fix below) went to 7 people on 09-30.
+- **09-30, "friends can plan their own thing" (Marc's bug):** a friend invited to someone else's plan was told they couldn't start a plan ("this chat is tied to Jeff's plan"). Members on a guest thread now get `start_own_plan`, which starts a plan with them as host (with their picks) and leaves the other plan untouched.
 - **09-30, "text until they decide" (Marc):** suggestions stay in the text, with no cards or pages, until the host decides. Then `make_plan` returns the plan page link, which the agent sends. `show_options` is only used when someone asks for photos or a list page. Feature pitches no longer push option cards.
 - **09-30, faster pages:** the shared Apache (prefork, which MacroFit's mod_php needs) went from 4 to 40 workers, and KeepAliveTimeout from 5 s to 2 s. Backups are `*.bak-<stamp>` next to `mpm_prefork.conf` and `apache2.conf`. 20 parallel requests now all finish within about 1.3 s. Switching to the event MPM would mean moving MacroFit to php-fpm.
 - **09-30, memory Phase 1 + bug fixes:**

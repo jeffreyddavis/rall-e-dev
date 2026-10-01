@@ -211,14 +211,16 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === '/api/ops/insights' && req.method === 'GET') return json(res, 200, { ...stats.report(), ...(role === 'operator' ? { canEdit: true } : {}) });
         if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
-        if (url.pathname === '/api/ops/sources' && req.method === 'GET') { if (role !== 'operator') fail(404, 'Not found.'); return json(res, 200, { sources: sms.sources.list() }); }
+        // Sources (curated event calendars) are open to both keys, so Mike and Marc can manage them from the dashboard.
+        if (url.pathname === '/api/ops/sources' && req.method === 'GET') return json(res, 200, { sources: sms.sources.list() });
+        if (url.pathname === '/api/ops/transactions' && req.method === 'GET') return json(res, 200, sms.bookings.report());
         if (req.method !== 'POST') fail(405, 'Method not allowed.');
-        if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
         if (url.pathname.startsWith('/api/ops/sources')) {
           const input = await body(req), op = url.pathname.slice('/api/ops/sources'.length);
           if (op === '') await sms.sources.add(input); else if (op === '/refresh') await sms.sources.refresh(String(input.id || '')); else if (op === '/remove') sms.sources.remove(String(input.id || '')); else fail(404, 'Not found.');
           return json(res, 200, { sources: sms.sources.list() });
         }
+        if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
         if (url.pathname === '/api/ops/gap') { const input = await body(req); stats.setGap(String(input.category || ''), input); return json(res, 200, { ok: true }); }
         const input = await body(req), phone = normalizePhone(input.phone || '');
         if (!phone || !(sms.allowed.has(phone) || (url.pathname === '/api/ops/wipe' && sms.db.prepare("SELECT 1 FROM sms_log WHERE phone=? LIMIT 1").get(phone)))) fail(404, 'Not a Rall-e number.');
@@ -359,7 +361,7 @@ const server = http.createServer(async (req, res) => {
     res.end(await readFile(path));
   } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); sms.sources.schedule(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); });
 // Deploys restart the service: stop taking requests, finish texts already being handled (up to 25 s), then exit.
 let stopping = false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => {

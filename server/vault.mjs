@@ -52,7 +52,14 @@ export class Vault {
     const d = createDecipheriv('aes-256-gcm', this.key, Buffer.from(iv, 'base64')); d.setAuthTag(Buffer.from(tag, 'base64'));
     return JSON.parse(Buffer.concat([d.update(Buffer.from(body, 'base64')), d.final()]).toString('utf8'));
   }
-  load(phone) { const row = this.db.prepare('SELECT data FROM vault_profiles WHERE phone=?').get(phone); return row ? this.open(row.data) : {}; }
+  // Stripe test and live mode don't share customers or cards: after switching keys, a card saved in the other mode is
+  // unusable, so it's treated as gone (they add it again) instead of failing with "No such customer".
+  get stripeMode() { return this.stripeSecret.startsWith('sk_live_') ? 'live' : 'test'; }
+  load(phone) {
+    const row = this.db.prepare('SELECT data FROM vault_profiles WHERE phone=?').get(phone), v = row ? this.open(row.data) : {};
+    if (this.stripeSecret && (v.stripeCustomer || v.card) && (v.stripeMode || 'test') !== this.stripeMode) { delete v.stripeCustomer; delete v.card; }
+    return v;
+  }
   write(phone, data) { this.db.prepare('INSERT OR REPLACE INTO vault_profiles VALUES (?,?,?)').run(phone, this.seal(data), Date.now()); }
   audit(phone, actor, action, fields = []) { this.db.prepare('INSERT INTO vault_audit VALUES (?,?,?,?,?)').run(Date.now(), phone, actor, action, fields.join(',')); }
   require() { if (!this.enabled) fail(503, 'The vault is not set up on this server yet.'); }
@@ -149,7 +156,7 @@ export class Vault {
     const v = this.load(phone);
     if (!v.stripeCustomer) {
       const customer = await this.stripe('POST', 'customers', { 'metadata[rall_e_phone_hash]': hash(phone).slice(0, 16), description: 'Rall-e member' });
-      v.stripeCustomer = customer.id; this.write(phone, v);
+      v.stripeCustomer = customer.id; v.stripeMode = this.stripeMode; this.write(phone, v);
     }
     const intent = await this.stripe('POST', 'setup_intents', { customer: v.stripeCustomer, usage: 'off_session', 'payment_method_types[]': 'card', 'metadata[source]': 'rall-e-vault' });
     this.audit(phone, 'owner', 'card-start');
