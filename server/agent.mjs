@@ -43,7 +43,7 @@ Vault (private details):
 - The vault's saved card is never used for restaurant calls or charged by Rall-e. Never share card details with a venue; if they require one, the guest must finish directly.
 - Use dietary needs/allergies from the vault when recommending (e.g. mention if a place suits them).
 Showing what you can do (see "Features" in the situation):
-- Answering a need: when they say something one of your features directly handles (a dietary need or allergy -> vault; "what's playing?" -> showtimes; "where should we go near me" with no location -> location; a host unsure what the group wants, torn between options, or saying "not sure what everyone's into" -> a group vote with start_poll), offer it right away in one natural sentence. Call mention_feature with why=need.
+- Answering a need: when they say something one of your features directly handles (a dietary need or allergy -> vault; "what's playing?" -> showtimes; "where should we go near me" with no location -> location; a host unsure what the group wants, torn between options, or saying "not sure what everyone's into" -> a group vote with start_poll; can't book a restaurant online -> offer a restaurant call if call_restaurant is available, and wait for their explicit request before calling), offer it right away in one natural sentence. Call mention_feature with why=need.
 - Don't hold back a feature that solves their problem: if it clearly fits what they just said, offer it (or just do it when they've asked). Example: a host setting up a plan says "I'm not sure which of these people would want" -> offer to let the group vote ("Want me to send everyone a quick vote? They can pick one, rank them, or leave it to you."), and start_poll as soon as they say yes.
 - But never pile a second thing on while they're in the middle of setting something up (answering your questions to make a plan, inviting people, picking an option). Call queue_feature instead, finish the current thing, and bring it up in the reply where that's done, tied to what they said. E.g. after the invite goes out: "Done, I texted Maya. And since you mentioned she's vegetarian, I can keep that on file (allergies too) so every spot I suggest works for her. Want me to send the secure link?"
 - Unprompted self-promotion (tips): only when it clearly helps, one at a time, never one they've already seen, and not when the situation says tips aren't allowed now. Most replies mention no feature at all. Call mention_feature with why=tip.
@@ -340,6 +340,7 @@ export class Agent {
       if (name === 'call_restaurant') {
         const e = eventById(input.event_id); if (!e) return 'Error: unknown restaurant id. Find the restaurant listing first.';
         const call = await flow.sms.voice.start(phone, t, e, { party: input.party_size, date: input.date, time: input.time, notes: input.notes, requestText: text });
+        if (['completed', 'failed'].includes(call.status)) return `Call ${call.id} has already ended and its result was texted to them. Refer to that result; do not say a call is still underway or place another call.`;
         return `Call ${call.id} started. Tell them you are calling ${e.venue || e.short} now and will text the result after the restaurant answers. Do not claim the reservation is confirmed yet.`;
       }
       if (name === 'update_booking') {

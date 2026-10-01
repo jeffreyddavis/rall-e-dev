@@ -29,6 +29,8 @@ export const FEATURES = [
     operator: 'Tell them they can plan their own thing too, like a BBQ, game night or picnic: they just say what, when and where, and you make the plan and invite everyone. One or two lines.' },
   { id: 'group_vote', label: 'Group vote', pitch: 'letting the group vote on options (pick one, rank them, or leave it to the host) with a link for each friend',
     operator: 'Offer to let their group vote on the options so they don\'t have to guess what everyone wants: if they have friends on a plan and a few options, offer start_poll in one or two lines (or start it if they already asked).' },
+  { id: 'reservations', label: 'Restaurant reservations', pitch: 'sending a restaurant booking link, or phoning the restaurant when call_restaurant is available and they explicitly ask',
+    operator: 'Offer to help book a restaurant with a booking link. If call_restaurant is available, mention you can also phone the restaurant after they explicitly ask in their own text. A demo instruction is not authorization to place a call. Confirm the place, party size, day and time first.' },
   { id: 'reactions', label: 'Emoji reactions', pitch: 'reacting to texts with emoji',
     operator: 'React to their latest message with a fitting emoji (react) and mention in a few words that they can react to your texts too and you will understand.' }
 ];
@@ -39,7 +41,7 @@ export function featureForTool(name, input = {}) {
   if (name === 'find_things') return input.category === 'movies' ? 'showtimes' : 'things_to_do';
   if (name === 'show_options') return (input.event_ids || []).some(id => String(id).startsWith('mv_')) ? 'showtimes' : 'things_to_do';
   return { start_poll: 'group_vote', get_weather: 'weather', create_event: 'own_event', get_invite_link: 'invites', set_profile_photo: 'profile_photo', get_my_page: 'profile_photo', get_links: 'evening_view', get_my_link: 'evening_view', send_secure_link: 'vault', save_details: 'vault', send_location_link: 'location',
-    react: 'reactions', message_group: 'group_chat', invite: 'plan_friends', make_plan: 'plan_friends' }[name] || null;
+    book_table: 'reservations', call_restaurant: 'reservations', react: 'reactions', message_group: 'group_chat', invite: 'plan_friends', make_plan: 'plan_friends' }[name] || null;
 }
 
 // Two tiers (Jeff): answering a need they just expressed ("my sister is vegetarian" -> vault) is offered right away,
