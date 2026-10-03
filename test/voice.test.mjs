@@ -142,3 +142,21 @@ test('a call is placed for any clear request (venue names, "again", a yes to our
   for (const t of ["I'll call them myself", "don't call them", "what's their phone number", 'call me later', 'sounds good'])
     assert.equal(callAuthorized(t), false, t);
 });
+
+test('the result text says why, with what the restaurant said (a quote, or their last words from the transcript)', async () => {
+  const t = setup(), voice = t.sms.voice;
+  const a = await voice.start(MEMBER, null, EVENT, t.options);
+  voice.complete(a.id, { call: { id: 'vapi-call-1', endedReason: 'assistant-ended-call' }, artifact: { structuredOutputs: { 'output-id': { name: RESERVATION_OUTPUT.name,
+    result: { outcome: 'needs_guest', reason: 'parties book through Resy only', restaurant_said: 'We only take reservations on Resy, call me at 401-555-0199 if it is full', offered_times: ['5:30 PM'] } } } } });
+  const text = t.store.db.prepare("SELECT body FROM sms_log WHERE kind='booking' ORDER BY rowid DESC").get().body;
+  assert.match(text, /Reason: parties book through Resy only\. They offered: 5:30 PM\. They said: “We only take reservations on Resy, call me at \[number\] if it is full”/);
+  t.store.close();
+
+  const u = setup(), b = await u.sms.voice.start(MEMBER, null, EVENT, u.options);
+  u.sms.voice.complete(b.id, { call: { id: 'vapi-call-1', endedReason: 'assistant-ended-call', artifact: { messages: [
+    { role: 'bot', message: 'Hi, this is Rall-e, an AI assistant calling for a customer.' },
+    { role: 'user', message: 'Sorry, for parties under six you have to come in person, we do not book by phone.' }] } },
+    artifact: { structuredOutputs: { 'output-id': { name: RESERVATION_OUTPUT.name, result: { outcome: 'needs_guest' } } } } });
+  assert.match(u.store.db.prepare("SELECT body FROM sms_log WHERE kind='booking' ORDER BY rowid DESC").get().body, /They said: “Sorry, for parties under six you have to come in person, we do not book by phone\.”/);
+  u.store.close();
+});

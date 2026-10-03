@@ -1,0 +1,9 @@
+Call results now say why and quote the restaurant
+
+Structured output v2 adds reason, restaurant_said, offered_times and how_to_book,
+with a transcript-quote fallback. Details are appended to the result text and
+stored in voice_calls.details. Agent prompt: pass the quote along instead of
+"I don't know why". Release note added; 105 tests pass.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TWDYEga7TRafQxANkyFyaM

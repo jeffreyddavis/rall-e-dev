@@ -12,5 +12,6 @@ export const RELEASES = [
   { id: '2026-10-01-favorites', date: '2026-10-01', text: 'Make a top 5: text me "my top 5 coffee spots in <your city>" and I\'ll make a page you can share. Friends on Rall-e see your picks when they look nearby.' },
   { id: '2026-10-01-tips', date: '2026-10-01', text: 'Know a hidden gem or a site with great local events? Text it to me (or any feedback) and the team will add the good ones, credited to you.' },
   { id: '2026-10-01-restaurant-calls', date: '2026-10-01', text: 'Want me to phone a restaurant for a table? Tell me to call after we pick the place, party size and time. I’ll text you what they say.' },
-  { id: '2026-10-02-call-fix', date: '2026-10-02', text: 'Fixed: asking me to call a restaurant now works the way you\'d say it ("call Cure", "call them again", or just "yes" when I offer), instead of me asking you to confirm again.' }
+  { id: '2026-10-02-call-fix', date: '2026-10-02', text: 'Fixed: asking me to call a restaurant now works the way you\'d say it ("call Cure", "call them again", or just "yes" when I offer), instead of me asking you to confirm again.' },
+  { id: '2026-10-02-call-details', date: '2026-10-02', text: 'After I call a restaurant, I now tell you why it didn\'t work out and quote what they said (hours, how to book, times they offered).' }
 ];

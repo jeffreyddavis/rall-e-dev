@@ -20,16 +20,31 @@ export function callAuthorized(requestText, lastOffer = '') {
   if (CALL_WORD.test(t)) return true;
   return YES.test(t) && /\b(call|phone)\b[^?]*\?\s*$/i.test(String(lastOffer || '').trim());
 }
+// Never pass along long digit runs (phone or card numbers) from what was said on the call.
+const scrub = v => String(v || '').replace(/\+?\d[\d\s().-]{6,}\d/g, '[number]');
+// The restaurant's side of the call (Vapi labels the called party "user"), last couple of meaningful lines.
+export function restaurantLines(message) {
+  const list = message?.artifact?.messages || message?.call?.artifact?.messages || message?.messages || [];
+  const lines = list.filter(m => (m.role === 'user' || m.role === 'customer') && typeof (m.message || m.content) === 'string').map(m => clean(m.message || m.content, 200)).filter(t => t.split(' ').length >= 3);
+  if (lines.length) return clean(lines.slice(-2).join(' … '), 220);
+  const t = String(message?.artifact?.transcript || message?.call?.artifact?.transcript || message?.transcript || '');
+  const fromText = t.split('\n').filter(l => /^(user|customer)\s*:/i.test(l)).map(l => l.replace(/^[^:]+:\s*/, '').trim()).filter(l => l.split(' ').length >= 3);
+  return clean(fromText.slice(-2).join(' … '), 220);
+}
 const ACTIVE = "('starting','queued','ringing','in-progress','ended','unknown')";
 export const RESERVATION_OUTPUT = {
-  name: 'Rall-e reservation result v1', type: 'ai',
+  name: 'Rall-e reservation result v2', type: 'ai',
   description: 'Extract only the reservation the restaurant explicitly confirmed. A request or offered alternative is not a confirmation. Do not extract contact or payment details.',
   schema: { type: 'object', properties: {
     outcome: { type: 'string', enum: ['confirmed', 'unavailable', 'no_answer', 'needs_guest', 'unclear'], description: 'Use confirmed only for an explicit restaurant confirmation. Use unclear when there is no reliable answer.' },
     confirmed_date: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Confirmed date in YYYY-MM-DD, in restaurant local time. Use the requested date from the system prompt only when the restaurant agreed to it.' },
     confirmed_time: { type: 'string', pattern: '^([01]\\d|2[0-3]):[0-5]\\d$', description: 'Confirmed time in 24-hour HH:MM, in restaurant local time.' },
     confirmed_party: { type: 'integer', minimum: 1, maximum: 20, description: 'Number of guests explicitly confirmed by the restaurant.' },
-    confirmation: { type: 'string', description: 'Reservation reference supplied by the restaurant, if any. Never include contact or payment information.' }
+    confirmation: { type: 'string', description: 'Reservation reference supplied by the restaurant, if any. Never include contact or payment information.' },
+    reason: { type: 'string', description: 'In a few words, why the outcome is what it is, as the restaurant explained it (e.g. "fully booked 5 to 8 PM", "reservations only through Resy", "large parties must call themselves", "walk-ins only"). Empty if they gave no reason.' },
+    restaurant_said: { type: 'string', description: 'The most relevant thing the restaurant staff said about the request, quoted as closely to their exact words as possible, at most 200 characters. Never include phone numbers, emails, names of staff, or payment details.' },
+    offered_times: { type: 'array', items: { type: 'string' }, description: 'Alternative times the restaurant offered, as said (e.g. "5:30 PM", "after 9").' },
+    how_to_book: { type: 'string', description: 'What the restaurant said about how to book (online, call back, walk in, a specific app), if mentioned.' }
   }, required: ['outcome'] }
 };
 
@@ -46,6 +61,7 @@ export class VoiceCalls {
       call_id TEXT UNIQUE, secret_hash TEXT NOT NULL, status TEXT NOT NULL, result TEXT,
       created INTEGER NOT NULL, updated INTEGER NOT NULL, notified INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS voice_calls_phone ON voice_calls(phone, created);`);
+    try { this.db.exec('ALTER TABLE voice_calls ADD COLUMN details TEXT'); } catch {}
   }
   async api(path, init = {}) {
     const response = await this.fetch(`https://api.vapi.ai${path}`, {
@@ -169,7 +185,7 @@ export class VoiceCalls {
     if (row.call_id && message.call?.id !== row.call_id) fail(403, 'Call does not match.');
     const analysis = message.analysis || message.call?.analysis || {};
     const outputs = message.artifact?.structuredOutputs || message.call?.artifact?.structuredOutputs || {};
-    const output = Object.values(outputs).find(output => output?.name === RESERVATION_OUTPUT.name);
+    const output = Object.values(outputs).find(output => output?.name === RESERVATION_OUTPUT.name || output?.name === 'Rall-e reservation result v1');
     // Keep legacy results readable for calls started before the migration.
     let data = output ? (output.result || {}) : (analysis.structuredData || {});
     if (typeof data === 'string') { try { data = JSON.parse(data); } catch { data = {}; } }
@@ -194,6 +210,10 @@ export class VoiceCalls {
     this.db.prepare('UPDATE voice_calls SET status=?,result=?,updated=?,notified=1 WHERE id=? AND notified=0').run(neverConnected ? 'failed' : 'completed', result, Date.now(), id);
     if (confirmed) this.sms.bookings.update(row.phone, row.booking_id, { status: 'confirmed', confirmation: clean(data.confirmation, 60) });
     else this.sms.bookings.update(row.phone, row.booking_id, { status: ['unavailable', 'start_failed'].includes(outcome) ? 'failed' : 'requested' });
+    // What the restaurant actually said: the extracted quote, or, failing that, their last lines from the transcript.
+    const said = clean(data.restaurant_said, 220) || restaurantLines(message);
+    const why = [clean(data.reason, 140) ? `Reason: ${clean(data.reason, 140)}.` : '', Array.isArray(data.offered_times) && data.offered_times.length ? `They offered: ${data.offered_times.slice(0, 4).map(x => clean(x, 20)).join(', ')}.` : '', clean(data.how_to_book, 140) ? `How to book: ${clean(data.how_to_book, 140)}.` : '', said ? `They said: “${scrub(said)}”` : ''].filter(Boolean).join(' ');
+    this.db.prepare('UPDATE voice_calls SET details=? WHERE id=?').run(JSON.stringify({ reason: clean(data.reason, 140), said: scrub(said), offered: data.offered_times || [], how: clean(data.how_to_book, 140) }), id);
     const intro = neverConnected ? `I could not connect a call to ${booking.merchant}. ` : `Rall-e called ${booking.merchant}. `;
     const detail = neverConnected ? 'No reservation was made. Please use the booking link or contact them directly.'
       : outcome === 'confirmed' && !matched ? 'I could not verify the requested date, time and party size, so I did not confirm a booking for you.'
@@ -202,7 +222,7 @@ export class VoiceCalls {
       : outcome === 'needs_guest' ? 'They need you to contact them directly to finish booking.'
       : outcome === 'no_answer' ? 'No one answered.'
       : 'I could not verify a booking from the call. Please contact them directly.';
-    this.sms.deliver(row.phone, intro + detail, { kind: 'booking' });
+    this.sms.deliver(row.phone, `${intro}${detail}${why && !neverConnected && outcome !== 'no_answer' ? ` ${why}` : ''}`, { kind: 'booking' });
     return { ok: true };
   }
   list(phone, n = 5) { return this.db.prepare('SELECT id,booking_id,status,result,created FROM voice_calls WHERE phone=? ORDER BY created DESC LIMIT ?').all(phone, n); }
