@@ -42,11 +42,13 @@ test('call request has no arbitrary destination or card data; signed callback co
   const request = t.requests.find(r => r.url === 'https://api.vapi.ai/call');
   const payload = JSON.parse(request.init.body);
   assert.equal(payload.customer.number, VENUE);
-  assert.match(payload.assistant.firstMessage, /AI assistant/);
+  assert.equal(payload.assistant.firstMessageMode, 'assistant-waits-for-user');
+  assert.match(payload.assistant.model.messages[0].content, /first words must be: "Hi, I'm Rall-e, an AI assistant/);
+  assert.match(payload.assistant.model.messages[0].content, /dtmf tool to press only the key/);
   assert.equal(payload.assistant.artifactPlan.recordingEnabled, false);
   assert.equal(payload.assistant.artifactPlan.pcapEnabled, false);
   assert.equal(payload.assistant.artifactPlan.transcriptPlan.enabled, true);
-  assert.deepEqual(payload.assistant.model.tools, [{ type: 'endCall' }]);
+  assert.deepEqual(payload.assistant.model.tools, [{ type: 'endCall' }, { type: 'dtmf' }]);
   assert.equal(payload.assistant.artifactPlan.structuredOutputs[0].name, RESERVATION_OUTPUT.name);
   assert.ok(!request.init.body.includes('14155550199'));
   const secret = payload.assistant.server.headers['x-rally-voice-secret'];
