@@ -7,8 +7,19 @@ import { normalize } from './sms.mjs';
 const hash = value => createHash('sha256').update(value).digest();
 const clean = (value, length = 120) => String(value ?? '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, length);
 const US_PHONE = /^\+1[2-9]\d{9}$/;
-const AUTHORIZED = /\b(call|phone|ring)\b.{0,60}\b(them|restaurant|place|venue|book|reserve|table)\b/i;
-const NEGATED = /\b(don't|do not|never|stop|cancel)\s+(?:\w+\s+){0,2}(?:call|phone|ring)\b/i;
+const CALL_WORD = /\b(call|phone|ring|dial)\b/i;
+const NEGATED = /\b(don'?t|do not|never|stop|cancel|no need to|not)\s+(?:\w+\s+){0,2}(?:call|phone|ring|dial)\b/i;
+// "I'll call them myself", "call me", "what's the phone number": the member is not asking Rall-e to place a call.
+const NOT_A_REQUEST = /\b(i'?ll|i will|i can|let me|i'?m going to|im gonna|i'?ll just|we'?ll|we will)\s+(?:\w+\s+){0,2}(call|phone|ring|dial)\b|\b(call|phone|ring)\s+me\b|\bphone (number|#)\b|\bwhat'?s (their|the) (number|phone)\b/i;
+const YES = /^\s*(y(es|ea|eah|ep|up|a)?|sure|ok(ay)?|please( do)?|go (for it|ahead)|do it|yes please|sounds good|absolutely|definitely)\b[\s!.]*(please|now|thanks?|thank you)?[\s!.]*$/i;
+// A member has explicitly asked Rall-e to place the call when their latest text asks for a call (any wording, the
+// restaurant's name included: "call Cure", "call again", "phone them"), or it's a plain yes right after Rall-e offered to call.
+export function callAuthorized(requestText, lastOffer = '') {
+  const t = String(requestText || '');
+  if (NEGATED.test(t) || NOT_A_REQUEST.test(t)) return false;
+  if (CALL_WORD.test(t)) return true;
+  return YES.test(t) && /\b(call|phone)\b[^?]*\?\s*$/i.test(String(lastOffer || '').trim());
+}
 const ACTIVE = "('starting','queued','ringing','in-progress','ended','unknown')";
 export const RESERVATION_OUTPUT = {
   name: 'Rall-e reservation result v1', type: 'ai',
@@ -90,7 +101,8 @@ export class VoiceCalls {
   async start(phone, thread, event, { party, date, time, notes = '', requestText = '' }) {
     if (!this.enabled) fail(503, 'Restaurant calls are not available yet.');
     if (!this.sms.allowed.has(phone) || this.sms.isStopped(phone) || this.sms.labPhones.has(phone)) fail(403, 'Calling is unavailable for this account.');
-    if (!AUTHORIZED.test(requestText) || NEGATED.test(requestText)) fail(400, 'Ask me explicitly to call the restaurant before I place a call.');
+    const lastOffer = this.db.prepare("SELECT body FROM sms_log WHERE phone=? AND direction='out' AND kind IN ('reply','agent') ORDER BY rowid DESC LIMIT 1").get(phone)?.body || '';
+    if (!callAuthorized(requestText, lastOffer)) fail(400, 'They haven’t asked you to place the call yet. Ask once, in a few words, whether they want you to call; don’t mention any system or approval step.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time) || Number.isNaN(Date.parse(`${date}T${time}:00`)) || Date.parse(`${date}T${time}:00`) < Date.now() - 86400000) fail(400, 'I need a valid future day and time.');
     party = Number(party); if (!Number.isInteger(party) || party < 1 || party > 20) fail(400, 'I need a party size from 1 to 20.');
     this.checkCaps(phone);

@@ -29,7 +29,7 @@ function setup(provider = 'twilio', outboundLimit = false) {
 
 test('restaurant call needs explicit request and handles the Vapi number outbound limit', async () => {
   const t = setup('vapi', true);
-  await assert.rejects(t.sms.voice.start(MEMBER, null, EVENT, { ...t.options, requestText: 'Book it' }), /explicitly/);
+  await assert.rejects(t.sms.voice.start(MEMBER, null, EVENT, { ...t.options, requestText: 'Book it' }), /haven’t asked you to place the call/);
   await assert.rejects(t.sms.voice.start(MEMBER, null, EVENT, t.options), /provider’s outbound limit/);
   assert.equal(t.requests.filter(r => r.url === 'https://api.vapi.ai/call').length, 1);
   assert.equal(t.sms.voice.list(MEMBER)[0].status, 'failed');
@@ -131,4 +131,14 @@ test('an authenticated result arriving before a create timeout is preserved and 
   assert.equal(voice.list(MEMBER)[0].result, 'no_answer');
   assert.equal(t.store.db.prepare("SELECT COUNT(*) n FROM sms_log WHERE kind='booking'").get().n, 1);
   t.store.close();
+});
+
+test('a call is placed for any clear request (venue names, "again", a yes to our offer), never for "I\'ll call" or "don\'t call"', async () => {
+  const { callAuthorized } = await import('../server/voice.mjs');
+  for (const t of ['Call funke', 'Call cure', 'Call again', 'call them', 'Ya, call cure and see if they have any availability tonight for a table for 2 at 8pm. Send a recording of the conversation if you can', 'can you phone the restaurant for us'])
+    assert.equal(callAuthorized(t), true, t);
+  assert.equal(callAuthorized('yes', 'Want me to call Cure and ask about 8 PM?'), true);
+  assert.equal(callAuthorized('yes', 'Want me to send the booking link?'), false);
+  for (const t of ["I'll call them myself", "don't call them", "what's their phone number", 'call me later', 'sounds good'])
+    assert.equal(callAuthorized(t), false, t);
 });
