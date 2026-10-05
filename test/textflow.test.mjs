@@ -210,3 +210,12 @@ test('a text whose webhook never arrived is picked up by the catch-up check, onc
   assert.equal(t.sms.lastLine('+13105550101'), 'twilio');
   t.store.close();
 });
+
+test('an invite says when the plan happens, not the venue\'s opening hours', async () => {
+  const { inviteWhen } = await import('../server/textflow.mjs');
+  const place = { time: 'Open Tue 5:00 PM – 12:00 AM', venue: 'Edendale' };
+  assert.equal(inviteWhen({ stops: [], when: { date: '2026-10-06', time: '19:00' } }, place), 'Tue, Oct 6 at 7 PM');
+  assert.equal(inviteWhen({ stops: [], when: { date: '2026-10-06', time: '19:30' } }, place), 'Tue, Oct 6 at 7:30 PM');
+  assert.equal(inviteWhen({ stops: [], when: { date: '2026-10-06', time: '' } }, place), 'Tue, Oct 6');
+  assert.equal(inviteWhen({ stops: [] }, place), 'Open Tue 5:00 PM – 12:00 AM'); // nothing saved yet: what the listing says
+});

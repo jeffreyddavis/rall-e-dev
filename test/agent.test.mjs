@@ -33,6 +33,8 @@ test('the agent plans by text through tools, sends a contact card, and only invi
     tool('invite', { people: [{ name: 'Mike', phone: '310-555-0102' }, { name: 'Sarah', phone: '310-555-0177' }] }), body => {
       const result = body.messages.at(-1).content[0].content;
       assert.match(result, /Invited Mike by text/); assert.match(result, /Sarah: https:\/\/rall-e\.ai\/p\//);
+      // A second person is on the plan: the host gets the plan page in the same reply.
+      assert.match(result, /Their plan page, where RSVPs, picks and ideas come in .*: https:\/\/rall-e\.ai\/n\//);
       return say('Invited Mike! Here is Sarah\'s link to forward.');
     }
   ]);
@@ -43,6 +45,7 @@ test('the agent plans by text through tools, sends a contact card, and only invi
   await t.text(HOST, 'love it');
   await t.text(HOST, 'invite Mike 310-555-0102 and Sarah');
   assert.match(t.last(MIKE), /Jeff invited you to Small-room stand-up/);
+  assert.match(t.last(MIKE), /\(sample outing\)/); // only catalogue samples say so; real places don't
   assert.equal(t.out(MIKE, 'card').length, 1);
   assert.equal(t.out('+13105550177').length, 0); // a number the host never typed is never texted
   assert.equal(t.out(HOST, 'card').length, 1); // the card goes out once per phone

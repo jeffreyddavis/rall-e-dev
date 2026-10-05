@@ -23,6 +23,20 @@ export const legText = l => {
   return `${l.estimate ? 'about ' : ''}${t} ${l.mode}${dist}`;
 };
 const iso = d => new Date(d).toISOString().replace(/\.\d{3}Z$/, 'Z');
+// Google's hours for one day ("11:30 AM – 2:30 PM, 5:00 – 10:00 PM", "Open 24 hours", "Closed") as minute ranges.
+// A range past midnight ends after 1440. No hours or "Closed" gives none.
+export function hoursRanges(text) {
+  const s = String(text || '').replace(/[   ]/g, ' ');
+  if (/open 24 hours/i.test(s)) return [[0, 1440]];
+  if (!s || /closed/i.test(s)) return [];
+  const minute = (h, m, mer) => (mer ? (Number(h) % 12) + (mer === 'PM' ? 12 : 0) : Number(h)) * 60 + (Number(m) || 0);
+  return s.split(/,\s*/).map(part => /(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?\s*[–—-]\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?/i.exec(part)).filter(Boolean).map(m => {
+    const end = (m[6] || '').toUpperCase(), start = (m[3] || end).toUpperCase();
+    const a = minute(m[1], m[2], start), b = minute(m[4], m[5], end);
+    return [a, b <= a ? b + 1440 : b];
+  });
+}
+export const openAt = (ranges, minute) => ranges.some(([a, b]) => (minute >= a && minute < b) || (minute + 1440 >= a && minute + 1440 < b));
 const art = category => ({ dinner: 'dinner', food: 'dinner', comedy: 'comedy', music: 'rooftop', 'live shows': 'rooftop', nightlife: 'rooftop', nature: 'trail', outdoors: 'trail', museums: 'museum', arts: 'museum', theatre: 'comedy', sports: 'rooftop' })[category] || 'rooftop';
 function when(localDate, localTime) {
   if (!localDate) return 'See listing for times';
@@ -261,7 +275,7 @@ export class Discovery {
   }
 
   // ---------- search ----------
-  async search(loc, { what = '', category = '', days = 7, date = '', end_date = '' } = {}) {
+  async search(loc, { what = '', category = '', days = 7, date = '', end_date = '', time = '' } = {}) {
     if (!loc) fail(400, 'I need to know where they are first.');
     const ok = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
     const start = ok(date) ? new Date(`${date}T00:00:00Z`).getTime() : Date.now();
@@ -292,7 +306,7 @@ export class Discovery {
     if (this.keys.usda && farmy && loc.lat != null) tasks.push(this.usda(loc, what).catch(e => { console.error('USDA:', e.message); return []; }));
     if (this.keys.jambase && musicy && loc.lat != null) tasks.push(this.jambase(loc, start, end).catch(e => { console.error('JamBase:', e.message); return []; }));
     if (this.keys.seatgeek && eventy) tasks.push(this.seatgeek(loc, what, category, start, end).catch(e => { console.error('SeatGeek:', e.message); return []; }));
-    if (this.keys.google && (placey || musicy) && loc.lat != null) tasks.push(this.places(loc, musicy && !placey ? `${genre ? `${genre} ` : ''}live music bars and small music venues` : what, category, date)
+    if (this.keys.google && (placey || musicy) && loc.lat != null) tasks.push(this.places(loc, musicy && !placey ? `${genre ? `${genre} ` : ''}live music bars and small music venues` : what, category, date, { endDate: end_date, time })
       .then(list => musicy ? list.filter(e => !BIG_VENUE.test(`${e.short} ${e.description || ''}`)) : list).catch(e => { console.error('Places:', e.message); return []; }));
     tasks.push(this.local(loc, { what, category, start, end }));
     const seen = new Set(), out = [];
@@ -391,27 +405,39 @@ export class Discovery {
         price: ev.stats?.lowest_price ?? null, priceText: ev.stats?.lowest_price ? `from $${ev.stats.lowest_price}` : 'See listing', age: 'See listing', url: ev.url, image: ev.performers?.[0]?.image, description: `${(ev.type || 'Event').replace(/_/g, ' ')} at ${v.name || 'a local venue'}.` });
     });
   }
-  async places(loc, what, category, date = '') {
+  async places(loc, what, category, date = '', { endDate = '', time = '', anyHours = false } = {}) {
     const text = `${what || PLACE_QUERIES[category] || 'fun things to do'} near ${loc.label}`;
     const r = await this.get('https://places.googleapis.com/v1/places:searchText', { method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': this.keys.google, 'X-Goog-FieldMask': 'places.id,places.location,places.displayName,places.formattedAddress,places.shortFormattedAddress,places.rating,places.userRatingCount,places.priceLevel,places.primaryTypeDisplayName,places.googleMapsUri,places.editorialSummary,places.currentOpeningHours.weekdayDescriptions,places.currentOpeningHours.openNow,places.regularOpeningHours.weekdayDescriptions,places.businessStatus,places.websiteUri,places.photos' },
       body: JSON.stringify({ textQuery: text, maxResultCount: 8, locationBias: { circle: { center: { latitude: loc.lat, longitude: loc.lng }, radius: 15000 } } }) });
     const levels = { PRICE_LEVEL_INEXPENSIVE: '$', PRICE_LEVEL_MODERATE: '$$', PRICE_LEVEL_EXPENSIVE: '$$$', PRICE_LEVEL_VERY_EXPENSIVE: '$$$$' };
-    // Hours for the day they asked about (this week's hours include holiday/special closures); closed places are dropped.
-    const target = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`) : new Date(Date.now() + (Math.round(loc.lng / 15) + 1) * 3600000);
-    const dayName = target.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' }), isToday = !date || date === new Date().toISOString().slice(0, 10);
-    const dayWord = isToday ? 'today' : dayName.slice(0, 3);
+    // Only places we know are open when they'd go: hours for the day(s) they asked about (this week's hours include
+    // holiday/special closures), open at their time if they gave one, and not already closed for the day when it's today.
+    // Places with no listed hours are dropped: Rall-e doesn't recommend what it can't vouch for.
+    const ok = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '');
+    const localNow = new Date(Date.now() + (Math.round(loc.lng / 15) + 1) * 3600000), today = localNow.toISOString().slice(0, 10);
+    const first = ok(date) ? date : today, days = [first];
+    if (ok(endDate)) for (let d = first; days.length < 7;) { d = new Date(Date.parse(`${d}T12:00:00Z`) + DAY).toISOString().slice(0, 10); if (d > endDate) break; days.push(d); }
+    const at = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(time || ''), wantMinute = at ? Number(at[1]) * 60 + Number(at[2]) : null;
+    const nowMinute = localNow.getUTCHours() * 60 + localNow.getUTCMinutes();
     const list = (r.places || []).filter(p => !/CLOSED_(PERMANENTLY|TEMPORARILY)/.test(p.businessStatus || '')).map(p => {
       const type = p.primaryTypeDisplayName?.text || 'Place';
-      const line = (p.currentOpeningHours?.weekdayDescriptions || p.regularOpeningHours?.weekdayDescriptions || []).find(h => h.startsWith(dayName));
-      const hours = line ? line.replace(`${dayName}: `, '') : null;
+      const week = p.currentOpeningHours?.weekdayDescriptions || p.regularOpeningHours?.weekdayDescriptions || [];
+      const openDay = days.map(d => {
+        const dayName = new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+        const hours = week.find(h => h.startsWith(dayName))?.replace(`${dayName}: `, '') || null, ranges = hoursRanges(hours);
+        const fits = ranges.length && (wantMinute == null || openAt(ranges, wantMinute)) && (d !== today || ranges.some(([, b]) => b > nowMinute));
+        return fits ? { d, dayName, hours } : null;
+      }).find(Boolean);
+      if (!openDay && !anyHours) return null;
+      const { dayName, hours } = openDay || {}, dayWord = openDay?.d === today ? 'today' : dayName?.slice(0, 3);
       return this.shape({ id: `gp_${short(p.id)}`, source: 'Google Places', kind: 'place', category: /restaurant|food|cafe|bakery|bistro|grill|pizz|sushi|taco/i.test(type) ? 'dinner' : /bar|pub|lounge|night/i.test(type) ? 'nightlife' : /museum|gallery|art/i.test(type) ? 'museums' : /park|trail|garden|beach|hik/i.test(type) ? 'nature' : type.toLowerCase(),
         lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null, typeLabel: type.replace(/ restaurant$/i, ''),
         short: p.displayName?.text || 'A local spot', venue: p.displayName?.text || 'A local spot', area: p.shortFormattedAddress || p.formattedAddress || loc.label, address: p.formattedAddress,
-        time: !hours ? 'Check hours' : /closed/i.test(hours) ? `Closed ${dayWord}` : `Open ${dayWord} ${hours}`, closedThatDay: Boolean(hours && /closed/i.test(hours)), website: p.websiteUri || null, placeId: p.id, price: null, priceText: levels[p.priceLevel] || 'See listing',
+        time: openDay ? `Open ${dayWord} ${hours}` : 'Check hours', openDate: openDay?.d || null, website: p.websiteUri || null, placeId: p.id, price: null, priceText: levels[p.priceLevel] || 'See listing',
         rating: p.rating ? `${p.rating}★ (${p.userRatingCount || 0})` : null, photoRef: p.photos?.[0]?.name || null, image: p.photos?.[0]?.name ? `${this.base}/img/p/gp_${short(p.id)}` : null, age: 'See listing', url: p.googleMapsUri, description: p.editorialSummary?.text || `${type}${p.rating ? `, rated ${p.rating}★` : ''}.` });
     });
-    return date ? list.filter(e => !e.closedThatDay) : list; // asked about a specific day: skip places closed that day
+    return list.filter(Boolean);
   }
   async movies(loc, what, day) {
     const q = new URLSearchParams({ startDate: day, numDays: '1', lat: String(loc.lat), lng: String(loc.lng), radius: '10', units: 'mi', imageSize: 'Md', api_key: this.keys.gracenote });
@@ -453,7 +479,7 @@ export class Discovery {
   async serpMovies(loc, what, date, range = null) {
     // Busiest theaters first (most Google reviews): they're the ones with full schedules. Three searches, cached 12h each.
     const reviews = t => Number(/\((\d+)\)/.exec(t.rating || '')?.[1] || 0);
-    const theaters = (await this.places(loc, 'movie theaters', null)).filter(t => /cinema|theat|movie|imax|amc|regal|cinemark|laemmle|arclight|alamo/i.test(`${t.short} ${t.description}`))
+    const theaters = (await this.places(loc, 'movie theaters', null, '', { anyHours: true })).filter(t => /cinema|theat|movie|imax|amc|regal|cinemark|laemmle|arclight|alamo/i.test(`${t.short} ${t.description}`))
       .sort((a, b) => reviews(b) - reviews(a)).slice(0, 3);
     if (!theaters.length) return [];
     const city = (theaters[0].address || loc.label).split(',').slice(-3, -1).join(',').replace(/\d{5}/, '').trim();

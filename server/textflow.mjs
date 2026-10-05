@@ -11,6 +11,15 @@ import { stats } from './stats.mjs';
 import { legText } from './discovery.mjs';
 import { parseVcards } from './photos.mjs';
 import { planWhen, localNow } from './timeline.mjs';
+
+// When the invite says it happens: the plan's saved day and time ("Tue, Oct 6 at 7 PM"), not a venue's opening hours.
+export function inviteWhen(plan, e) {
+  const w = planWhen(plan); if (!w?.date) return e.time;
+  const day = new Date(`${w.date}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  if (!w.time) return day;
+  const [h, m] = w.time.split(':').map(Number);
+  return `${day} at ${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
+}
 const isCard = m => /vcard|x-vcard|text\/directory/i.test(m?.type || '') || /\.vcf(\?|$)/i.test(m?.url || '');
 
 const VIBES = [['1', 'dinner', 'Dinner'], ['2', 'live shows', 'Live shows'], ['3', 'museums', 'Museums & art'], ['4', 'nature', 'Outdoors']];
@@ -431,8 +440,8 @@ export class TextFlow {
       if (!to || to === phone) { linkOnly.push(person); continue; }
       this.link(to, t.digest, s, 'guest', person.id);
       const others = this.threadsFor(to).length > 1;
-      const e = eventById(s.plan.stops[0]);
-      const status = this.sms.deliver(to, `Rall-e: ${s.name} invited you to ${s.plan.title} — ${e.time} at ${e.venue} (sample outing). Details: ${this.link_(s, person)}\n${this.agent.enabled ? 'Just reply here to tell me if you’re in, ask anything, or suggest something else. Texts to me are private; say “tell the group…” to share with everyone.' : `Reply YES, MAYBE or NO. Text questions, ideas or messages for the group anytime.${others ? ' Reply PLANS to switch between plans.' : ''}`} Reply STOP to opt out.`, { kind: 'invite' });
+      const e = eventById(s.plan.stops[0]), when = inviteWhen(s.plan, e);
+      const status = this.sms.deliver(to, `Rall-e: ${s.name} invited you to ${s.plan.title} — ${when}${e.venue && e.venue !== s.plan.title ? ` at ${e.venue}` : ''}${e.fictional ? ' (sample outing)' : ''}. Details: ${this.link_(s, person)}\n${this.agent.enabled ? 'Just reply here to tell me if you’re in, ask anything, or suggest something else. Texts to me are private; say “tell the group…” to share with everyone.' : `Reply YES, MAYBE or NO. Text questions, ideas or messages for the group anytime.${others ? ' Reply PLANS to switch between plans.' : ''}`} Reply STOP to opt out.`, { kind: 'invite' });
       (status === 'blocked' ? blocked : texted).push(person);
       if (status !== 'blocked') this.sendCard(to);
     }

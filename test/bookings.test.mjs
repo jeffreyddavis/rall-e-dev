@@ -45,3 +45,18 @@ test('bookings and purchases roll up into transaction volume; lab numbers are le
   assert.equal(r.recent.length, 2);
   store.close();
 });
+
+test('when Rall-e can call restaurants, a table offer asks "want me to call?" and never hands over the number', async () => {
+  const { store, sms } = setup(); sms.sources = null;
+  const e = { ...eventById('dinner'), id: 'gp_call', placeId: null, website: 'https://nothing.example/' };
+  const agent = sms.flow.agent, input = { event_id: 'gp_call', party_size: 2, date: '2026-10-03', time: '19:00' };
+  sms.bookings.reserve = async () => ({ exact: true, platform: 'Resy', url: 'https://resy.com/x', phone: '(310) 555-0144' });
+  const { registerEvent } = await import('../server/catalog.mjs'); registerEvent(e);
+  sms.voice = { enabled: true };
+  const offer = await agent.run(A, 'book_table', input, { t: null }, 'book it');
+  assert.match(offer, /want me to call them for you\?/); assert.match(offer, /Never give them the restaurant's phone number/);
+  assert.ok(!offer.includes('555-0144'));
+  sms.voice = { enabled: false };
+  assert.match(await agent.run(A, 'book_table', input, { t: null }, 'book it'), /Their phone: \(310\) 555-0144/);
+  store.close();
+});

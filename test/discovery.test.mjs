@@ -9,7 +9,7 @@ const TM = { _embedded: { events: [{ id: 'G5vYZ9', name: 'Jazz Night', url: 'htt
   priceRanges: [{ min: 25, max: 60 }], classifications: [{ segment: { name: 'Music' }, genre: { name: 'Jazz' } }], _embedded: { venues: [{ name: 'Blue Room', city: { name: 'Akron' }, state: { stateCode: 'OH' }, address: { line1: '1 Main St' } }] } }] } };
 const SG = { events: [{ id: 99, short_title: 'Jazz Night', title: 'Jazz Night', datetime_local: '2026-10-03T20:00:00', datetime_utc: '2026-10-04T00:00:00', type: 'concert', url: 'https://sg.example/jazz', stats: { lowest_price: 30 }, venue: { name: 'Blue Room', city: 'Akron', state: 'OH' } },
   { id: 100, short_title: 'Rubber Ducks vs. Seawolves', datetime_local: '2026-10-04T13:05:00', datetime_utc: '2026-10-04T17:05:00', type: 'minor_league_baseball', url: 'https://sg.example/ducks', stats: { lowest_price: 12 }, venue: { name: 'Canal Park', city: 'Akron', state: 'OH' } }] };
-const GP = { places: [{ id: 'ChIJabc', displayName: { text: 'Luigi’s' }, formattedAddress: '105 N Main St, Akron, OH', shortFormattedAddress: '105 N Main St', rating: 4.6, userRatingCount: 2100, priceLevel: 'PRICE_LEVEL_MODERATE', primaryTypeDisplayName: { text: 'Italian Restaurant' }, googleMapsUri: 'https://maps.example/luigis', editorialSummary: { text: 'Classic Italian since 1949.' } }] };
+const GP = { places: [{ id: 'ChIJabc', displayName: { text: 'Luigi’s' }, formattedAddress: '105 N Main St, Akron, OH', shortFormattedAddress: '105 N Main St', rating: 4.6, userRatingCount: 2100, priceLevel: 'PRICE_LEVEL_MODERATE', primaryTypeDisplayName: { text: 'Italian Restaurant' }, googleMapsUri: 'https://maps.example/luigis', editorialSummary: { text: 'Classic Italian since 1949.' }, regularOpeningHours: { weekdayDescriptions: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `${d}: Open 24 hours`) } }] };
 const GEO = { results: [{ geometry: { location: { lat: 41.0814, lng: -81.519 } }, formatted_address: 'Akron, OH, USA', address_components: [{ long_name: 'Akron', types: ['locality'] }, { short_name: 'OH', long_name: 'Ohio', types: ['administrative_area_level_1'] }] }] };
 
 function setup(env = {}, extra = {}) {
@@ -150,4 +150,40 @@ test('travel time between stops: real Routes times when allowed, an "about" esti
   assert.deepEqual([leg.mode, leg.minutes, leg.estimate], ['drive', 7, false]); assert.equal(legText(leg), '7 min drive · 1.6 mi');
   assert.deepEqual(real.d.cachedLegs(['gp_legA', 'gp_legB']), [leg]);
   real.store.close();
+});
+
+test('places: only ones open when they would go; no hours or closed that day means left out', async () => {
+  const { hoursRanges, openAt } = await import('../server/discovery.mjs');
+  assert.deepEqual(hoursRanges('11:30 AM – 2:30 PM, 5:00 – 10:00 PM'), [[690, 870], [1020, 1320]]);
+  assert.deepEqual(hoursRanges('5:00 PM – 1:00 AM'), [[1020, 1500]]);
+  assert.deepEqual(hoursRanges('Open 24 hours'), [[0, 1440]]);
+  assert.deepEqual(hoursRanges('Closed'), []); assert.deepEqual(hoursRanges(null), []);
+  assert.ok(openAt(hoursRanges('5:00 PM – 1:00 AM'), 30)); assert.ok(!openAt(hoursRanges('11:30 AM – 2:30 PM'), 19 * 60));
+  const t = setup(), loc = t.d.saveLocation(ME, await t.d.geocode('44308')), saved = GP.places;
+  const place = (id, sat) => ({ id, displayName: { text: id }, formattedAddress: 'Akron, OH', primaryTypeDisplayName: { text: 'Restaurant' }, ...(sat ? { regularOpeningHours: { weekdayDescriptions: [`Saturday: ${sat}`] } } : {}) });
+  GP.places = [place('Dinner Spot', '11:00 AM – 10:00 PM'), place('Lunch Only', '11:30 AM – 2:30 PM'), place('Closed Saturdays', 'Closed'), place('No Hours'), place('Late Night', '11:30 AM – 2:30 PM, 5:00 PM – 1:00 AM')];
+  try {
+    const saturday = '2027-10-09';
+    assert.deepEqual((await t.d.places(loc, 'dinner', 'dinner', saturday, { time: '19:00' })).map(e => e.short), ['Dinner Spot', 'Late Night']);
+    assert.deepEqual((await t.d.places(loc, 'food', 'dinner', saturday)).map(e => e.short), ['Dinner Spot', 'Lunch Only', 'Late Night']);
+    const [spot] = await t.d.places(loc, 'dinner', 'dinner', saturday, { time: '19:00' });
+    assert.equal(spot.time, 'Open Sat 11:00 AM – 10:00 PM'); assert.equal(spot.openDate, saturday);
+    // A weekend range keeps a place open on any day of it (Friday-closed, Saturday-open).
+    GP.places = [{ ...place('Weekend Only'), regularOpeningHours: { weekdayDescriptions: ['Friday: Closed', 'Saturday: 9:00 AM – 5:00 PM'] } }];
+    const [weekend] = await t.d.places(loc, 'brunch', 'dinner', '2027-10-08', { endDate: '2027-10-10' });
+    assert.equal(weekend.openDate, saturday);
+    // Theaters for showtimes don't need hours.
+    GP.places = [place('No Hours')];
+    assert.equal((await t.d.places(loc, 'movie theaters', null, '', { anyHours: true })).length, 1);
+  } finally { GP.places = saved; t.store.close(); }
+});
+
+test('a place check showing it closed (Google, that day, or out of season on its site) rules it out', async () => {
+  const { placeClosed } = await import('../server/agent.mjs');
+  const c = (hours, notes = []) => ({ hours, notes });
+  assert.ok(!placeClosed(c('Saturday: 9:00 AM – 5:00 PM', ['Pick-your-own apples every weekend.'])));
+  assert.ok(placeClosed(c('Saturday: Closed')));
+  assert.ok(placeClosed(c('Saturday: hours not listed')));
+  assert.ok(placeClosed(c('Saturday: 9:00 AM – 5:00 PM', ['Google lists it as closed temporarily.'])));
+  assert.ok(placeClosed(c('Saturday: 9:00 AM – 5:00 PM', ['The preserve is closed for the season. See you next spring!'])));
 });

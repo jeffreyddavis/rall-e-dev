@@ -239,7 +239,7 @@ export class Sources {
       tool_choice: { type: 'auto' }, // forced tool choice isn't supported with this model's thinking; the system prompt requires the call
       messages: [{ role: 'user', content: `Today is ${new Date().toISOString().slice(0, 10)}. These events are in or near ${src.city}. Page: ${src.url}\n\n${text.slice(0, 60000)}` }] };
     const r = await agent.fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(120000),
-      headers: { 'content-type': 'application/json', 'x-api-key': agent.key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body) });
+      headers: agent.claudeHeaders(), body: JSON.stringify(body) });
     const result = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(`AI reader: ${result?.error?.message || r.status}`);
     meter.ai(result.usage, r.headers);

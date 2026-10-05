@@ -13,6 +13,9 @@ import { KINDS as MEMORY_KINDS } from './memory.mjs';
 
 const CATEGORIES = ['dinner', 'live shows', 'comedy', 'museums', 'nature'];
 const digits = value => String(value || '').replace(/\D/g, '').slice(-10);
+// A place check that shows it's closed: Google says closed, no hours that day, or its site says it's out of season.
+export const placeClosed = c => /Google lists it as closed/i.test(c.notes.join(' ')) || /:\s*closed\b|hours not listed/i.test(c.hours || '')
+  || /closed for the (season|winter|year)|season has ended|closed until (spring|march|april|may|next)|see you (next|in the) (spring|season|year)/i.test(c.notes.join(' '));
 
 const SYSTEM = `You are Rall-e, a friendly planning assistant people reach by text message (SMS). You help one person (the host) pick an outing and get friends together; invited friends text you to RSVP, suggest changes, vote, ask questions or chat with the group.
 
@@ -61,7 +64,7 @@ Showing what you can do (see "Features" in the situation):
 - Favorites: "my top 5 …" lists (set_favorites) are fun to share and help friends: offer it when someone raves about places, and mention friends' favorites when they fit a search.
 - Who else is going: when someone says they're going to a specific event (a concert, a game, a conference, a festival), call going_to and tell them which friends on Rall-e are going too. The first time, ask in a few words if friends on Rall-e may see they're going (share), and keep it private until they say yes. Be honest that you only know about friends on Rall-e who told you; suggest texting you contact cards to connect more friends. Never reveal anyone who isn't sharing.
 - Call results: the result text includes the restaurant's reason and what they said. If they ask why or what happened, pass that along (quote them); never answer "I don't know why" when there is a quote. If there truly is nothing, say they didn't give a reason.
-- Reservations and tickets: when they want a table, confirm party size, day and time (use what you know; ask only for what's missing). If they explicitly ask you to phone the restaurant and call_restaurant is available, use it once, tell them the call is underway, and wait for the follow-up text with the result. Otherwise use book_table and send the link in one line: they tap to confirm. Never imply a call happened when the tool is unavailable or failed. When they say it's booked (or it failed), update_booking. For tickets, send the ticket link; when they say they bought them, record_purchase with the amount. You can't log in to their Resy or OpenTable accounts or pay for them: never ask for passwords or card numbers.
+- Reservations and tickets: when they want a table, confirm party size, day and time (use what you know; ask only for what's missing). If they explicitly ask you to phone the restaurant and call_restaurant is available, use it once, tell them the call is underway, and wait for the follow-up text with the result. Otherwise use book_table and send the link in one line: they tap to confirm. When call_restaurant is available, offer to call for them instead of giving out the restaurant's phone number ("Or want me to call them for you?"), and never send a restaurant's number when they want a table. Never imply a call happened when the tool is unavailable or failed. When they say it's booked (or it failed), update_booking. For tickets, send the ticket link; when they say they bought them, record_purchase with the amount. You can't log in to their Resy or OpenTable accounts or pay for them: never ask for passwords or card numbers.
 - Days: never default to Saturday. "This weekend" means Friday evening through Sunday (search date=Friday, end_date=Sunday and mention options across the days); "this week" means the next several days; only pick one day when they named it.
 - Time: you always know their local time ("Right now for them", "Now") and when each of their texts was sent ([Tue 5:37 PM] at the start of their messages; never write these brackets yourself). Hours pass between texts: think like a friend who notices the clock. Infer when a plan happens from what they say ("itinerary for today", "Saturday") and save it with set_plan_time without asking. Read clues that it's underway ("heading out", asking for directions or a restroom on the way, "we just finished X") and record them with mark_progress; when it's clearly over (evening after a day trip, "we're home", the date has passed), treat it as done (mark_happened) instead of planning around it. Ask only when a wrong guess would matter.
 - Next time vs. last time: when they ask about the future, want to see a feature, or ask "what if" questions and the current plan is over or unrelated, don't anchor on the old plan. Talk about the days ahead, or start a placeholder for "your next outing" (create_event with a working title like "Next outing" and a date if they gave one, then make_plan with it, or start_new_plan first if the current plan has friends on it) and fill it in as they decide. At 11 PM nobody wants tips for this afternoon's trip.`;
@@ -70,11 +73,13 @@ const DISCOVERY = `Finding things to do (your first focus):
 - Rall-e's core job is surfacing relevant, real things to do near the person: events, restaurants, bars, shows, games, museums, outdoors. Lead with that.
 - You need their location. If "Location" below is unknown, ask where they are (neighborhood, city or ZIP) and save it with set_location, or offer send_location_link for one-tap GPS sharing. If they mention being somewhere else ("I'm in Boston this weekend"), update it.
 - Use find_things with what they want (e.g. "live jazz", "brunch", "comedy", "something outdoors"), and a date or number of days. Tailor to their interests, dietary needs and allergies.
-- Text until they decide (like a friend texting): suggest options in the text itself, short and scannable (name, when, one reason it fits), and ask which sounds good. No cards, pages or links while they're still choosing; answer follow-ups (details, prices, times, "what about both?") in text too. When they decide ("the orchard", "let's do both", "#2"), start the plan: make_plan with the pick (add_stop for each extra pick), then send the plan page from the make_plan result in one short line and ask who to invite. Only call show_options if they ask to see photos or a page of the options ("show me pictures", "send me the list"); if the group should choose, offer start_poll instead. Never paste links to options yourself. A text like (Tapped "My pick" on X [id] on the options page) means they chose X: treat it as "let's do X" (host: make_plan or add_stop; friend: suggest) and reply briefly. A text with a rall-e.ai/e/<id> link (e.g. "Let's plan Nua (rall-e.ai/e/gp_abc)") refers to that outing id: start a plan with it (make_plan with that id; add_stop if they already have a plan going) and ask who to invite.
+- A second person means the Rall-e page: as soon as anyone else is part of it (they say "me and Sarah", "my wife and I", "a few friends", "we", or want to invite someone), surface the page in that same reply. With a plan already started, send their plan page (get_links) in one short line. While they're still choosing, show the options you're suggesting as a page (show_options) so they can look at them together, and say so in a few words; once they pick, start the plan and send the plan page. This overrides "text until they decide" below.
+- Text until they decide (like a friend texting): suggest options in the text itself, short and scannable (name, when, one reason it fits), and ask which sounds good. No cards, pages or links while they're still choosing; answer follow-ups (details, prices, times, "what about both?") in text too. When they decide ("the orchard", "let's do both", "#2"), start the plan: make_plan with the pick (add_stop for each extra pick), then send the plan page from the make_plan result in one short line and ask who to invite. Only call show_options if they ask to see photos or a page of the options ("show me pictures", "send me the list") or a second person is part of it (see above); if the group should choose, offer start_poll instead. Never paste links to options yourself. A text like (Tapped "My pick" on X [id] on the options page) means they chose X: treat it as "let's do X" (host: make_plan or add_stop; friend: suggest) and reply briefly. A text with a rall-e.ai/e/<id> link (e.g. "Let's plan Nua (rall-e.ai/e/gp_abc)") refers to that outing id: start a plan with it (make_plan with that id; add_stop if they already have a plan going) and ask who to invite.
 - Results are live listings from Ticketmaster, SeatGeek, Google Places and local event calendars the team added; availability and prices can change, and you can't buy tickets or book tables.
 - Events vs. venues: Google Places results (ids gp_) are VENUES with hours, not things happening. When they ask about events, shows, markets or "what's on" for a day, or the plan is for a specific day, don't pitch a venue as if something is on there. Call check_places on the 2-3 most promising venues first (with the date): it reads each venue's own calendar and hours. Then pitch the real events it found (ids ve_) or venues confirmed open that day.
 - Live music: people usually mean local gigs, not arenas. Lead with small venues and local acts (bars, clubs, listening rooms, breweries, cafés with music): shows from venue calendars and local sources first, then small Ticketmaster shows. For venues without a show listed (ids gp_), check_places to see who's playing. Mention an arena show only if it's a big name they'd care about or they asked for big concerts.
 - Seasonal and outdoor spots (farms, orchards, nature preserves, beaches, pools, markets, gardens) often close for the season or have limited days: check_places before recommending them for a specific day, and drop anything closed.
+- Only recommend what you have specific, checked information on. A venue (id gp_) needs a check first: find_things checks the top few automatically (marked CHECKED); anything marked NOT CHECKED needs check_places before you mention it. If a check doesn't show it open when they'd go, or their site says closed or out of season, leave it out. Pass time to find_things whenever the time of day is known or implied (dinner, lunch, brunch, "tonight at 8"), so places that aren't open then are left out.
 - Never recommend something because of its star rating alone, and never recommend a place you've seen is closed that day. If you couldn't confirm, say what you checked in a few words (e.g. "their site doesn't list Saturday events") rather than "check the listings".`;
 const catalogue = () => EVENTS.map(e => `${e.id}: ${e.short} (${e.category}) at ${e.venue}, ${e.area}. ${e.time}; doors/arrival ${e.doors}; ${e.duration}; ${e.price ? `$${e.price}/person sample` : 'free'}; ${e.age}; access: ${e.accessibility} ${e.description}`).join('\n');
 
@@ -84,6 +89,7 @@ export class Agent {
     this.key = env.ANTHROPIC_API_KEY || ''; this.model = env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
     this.effort = env.ANTHROPIC_EFFORT || 'low'; this.timeout = Number(env.AGENT_TIMEOUT_MS) || 25000;
     // Backup brain: if Claude is down, the same conversation continues on OpenAI (same prompt, tools and history).
+    this.workspace = env.ANTHROPIC_WORKSPACE_ID || ''; // keys not scoped to a workspace must name one
     this.openaiKey = env.OPENAI_API_KEY || ''; this.openaiModel = env.OPENAI_MODEL || 'gpt-6-sol'; this.openaiEffort = env.OPENAI_REASONING_EFFORT ?? 'none'; // Chat Completions only allows function tools with reasoning off on GPT-6
     this.claudeDownUntil = 0; // after a Claude outage error, skip straight to the backup for a couple of minutes
     this.enabled = Boolean(this.key) && env.SMS_AGENT !== 'off'; this.pendingEmoji = new Map(); this.pendingCards = new Map(); this.features = new FeatureLog(flow.db);
@@ -155,9 +161,9 @@ export class Agent {
     const live = this.discovery.enabled;
     const eventId = live ? { type: 'string', description: 'An id returned by find_things (or a sample catalogue id).' } : { type: 'string', enum: EVENTS.map(e => e.id) };
     const find = live ? [
-      T('find_things', `Search real things to do near them (events, restaurants, bars, activities${this.discovery.keys?.gracenote || this.discovery.keys?.serp ? ', and movies with real showtimes at nearby theaters: use category movies' : ''}).`, { what: { type: 'string', description: 'What they want, e.g. "live music", "brunch", "comedy", "something outdoors"' }, category: { type: 'string', enum: ['music', 'comedy', 'sports', 'theatre', 'arts', 'nightlife', 'dinner', 'museums', 'nature', 'movies'] }, date: { type: 'string', description: 'YYYY-MM-DD: the first (or only) day' }, end_date: { type: 'string', description: 'YYYY-MM-DD: last day of a range. "This weekend" = Friday to Sunday; "this week" = today to Sunday.' }, days: { type: 'integer', description: 'How many days ahead to look (default 7)' } }),
+      T('find_things', `Search real things to do near them (events, restaurants, bars, activities${this.discovery.keys?.gracenote || this.discovery.keys?.serp ? ', and movies with real showtimes at nearby theaters: use category movies' : ''}).`, { what: { type: 'string', description: 'What they want, e.g. "live music", "brunch", "comedy", "something outdoors"' }, category: { type: 'string', enum: ['music', 'comedy', 'sports', 'theatre', 'arts', 'nightlife', 'dinner', 'museums', 'nature', 'movies'] }, date: { type: 'string', description: 'YYYY-MM-DD: the first (or only) day' }, end_date: { type: 'string', description: 'YYYY-MM-DD: last day of a range. "This weekend" = Friday to Sunday; "this week" = today to Sunday.' }, days: { type: 'integer', description: 'How many days ahead to look (default 7)' }, time: { type: 'string', description: '24h HH:MM when they want to be there (e.g. 19:00 for dinner, 12:30 for lunch). Places not open then are left out. Pass it whenever the time of day is known or implied.' } }),
       T('set_location', 'Save where they are (neighborhood, city or ZIP) for finding things nearby.', { place: { type: 'string' } }, ['place']),
-      T('show_options', 'ONLY when they ask to see photos or a page of the options ("show me pictures", "send me the list"). Not for normal suggestions: those stay in your text until they decide. Pass every option you mentioned (up to 8), best first; ONE picture card follows your text and opens a page with all of them.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 } }, ['event_ids']),
+      T('show_options', 'ONLY when they ask to see photos or a page of the options ("show me pictures", "send me the list"), or a second person is part of the plan and they are still choosing. Not for normal suggestions: those stay in your text until they decide. Pass every option you mentioned (up to 8), best first; ONE picture card follows your text and opens a page with all of them.', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 8 } }, ['event_ids']),
       T('send_location_link', 'Text them a one-tap link to share their current location from their phone.'),
       T('check_places', 'Before recommending venues (places from find_things, especially for a specific day, events/shows, or anything seasonal like farms, orchards, preserves, markets, pools): check up to 3 of them. Returns their hours that day, real upcoming events from their own website calendar (with ids you can show), and notes from their site such as "closed for the season".', { event_ids: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 3 }, date: { type: 'string', description: 'YYYY-MM-DD of the day they care about, if any' } }, ['event_ids']),
       T('get_weather', 'The forecast where they are (about 7 days, US only). Use when they ask about weather, or when planning outdoor things or their week, to steer toward good days (indoor ideas if it will rain).')] : [];
@@ -272,12 +278,24 @@ export class Agent {
       if (name === 'find_things') {
         const loc = this.discovery.location(phone);
         if (!loc) return 'Error: location unknown. Ask where they are (or use send_location_link), then save it with set_location.';
-        const found = await this.discovery.search(loc, input);
+        let found = await this.discovery.search(loc, input);
+        // Check the top places before the agent sees them (hours that day, their own site: seasonal closures, events),
+        // and drop any the check shows closed. Other places are marked unchecked; the agent must check before pitching them.
+        const toCheck = found.filter(e => e.kind === 'place').slice(0, 3), checked = new Map();
+        if (toCheck.length && this.discovery.checkPlace) {
+          const checks = await Promise.all(toCheck.map(e => Promise.race([this.discovery.checkPlace(e, input.date || e.openDate || '').catch(() => null), new Promise(r => setTimeout(() => r(null), 8000))])));
+          checks.forEach((c, i) => { if (c) checked.set(toCheck[i].id, c); });
+          stats.bump('place_checks', checked.size, phone);
+          found = found.filter(e => !checked.has(e.id) || !placeClosed(checked.get(e.id)));
+        }
         this.discovery.remember(phone, found);
         stats.bump(`searches_${input.category || (/movie|film|showtime/i.test(input.what || '') ? 'movies' : 'general')}`, 1, phone); if (!found.length) stats.bump('searches_empty', 1, phone);
         const favs = flow.sms.favorites?.friendsNear(phone, loc) || [], gems = flow.sms.ideas?.gemsNear(loc) || [];
         const extra = `${favs.length ? `\nFriends' favorites near here (mention one when it fits; say whose favorite it is):\n${favs.join('\n')}` : ''}${gems.length ? `\nHidden gems Rall-e members recommended near here (say who recommended it):\n${gems.join('\n')}` : ''}`;
-        return (found.length ? `Found near ${loc.label}:\n${found.map(e => this.discovery.describe(e)).join('\n')}` : `Nothing matched near ${loc.label}. Try a broader search or different dates.`) + extra;
+        const line = e => e.kind !== 'place' ? this.discovery.describe(e)
+          : checked.has(e.id) ? `${this.discovery.describe(e)}\n  CHECKED: ${this.discovery.checkText(checked.get(e.id)).split('\n').slice(1).join(' ').replace(/\s+/g, ' ')}`
+          : `${this.discovery.describe(e)}\n  NOT CHECKED: call check_places on it before recommending it.`;
+        return (found.length ? `Found near ${loc.label}:\n${found.map(line).join('\n')}\nOnly recommend events listed here and places marked CHECKED whose check supports it (open then, nothing on their site saying closed or out of season).` : `Nothing open matched near ${loc.label}. Try a broader search, a different time or different dates.`) + extra;
       }
       if (name === 'show_options') {
         const ids = [...new Set((input.event_ids || []).filter(id => eventById(id)))].slice(0, 8);
@@ -288,7 +306,7 @@ export class Agent {
       if (name === 'check_places') {
         const list = [...new Set(input.event_ids || [])].slice(0, 3).map(id => eventById(id)).filter(e => e && e.kind === 'place');
         if (!list.length) return 'Error: check_places works on places (ids starting gp_) from find_things.';
-        const checks = await Promise.all(list.map(e => Promise.race([this.discovery.checkPlace(e, input.date || ''), new Promise(r => setTimeout(() => r({ id: e.id, name: e.short, hours: e.time, events: [], notes: ['(Check timed out.)'] }), 15000))])));
+        const checks = await Promise.all(list.map(e => Promise.race([this.discovery.checkPlace(e, input.date || e.openDate || ''), new Promise(r => setTimeout(() => r({ id: e.id, name: e.short, hours: e.time, events: [], notes: ['(Check timed out.)'] }), 15000))])));
         stats.bump('place_checks', list.length, phone);
         return `${checks.map(c => this.discovery.checkText(c)).join('\n')}\nOnly recommend what this supports. Prefer real events you found; drop places that are closed that day or for the season, and say so briefly if it matters.`;
       }
@@ -336,7 +354,10 @@ export class Agent {
       if (name === 'book_table') {
         const e = eventById(input.event_id); if (!e) return 'Error: unknown place id. Use an id from your search results.';
         const r = await flow.sms.bookings.reserve(phone, t, e, { party: input.party_size, date: input.date, time: input.time, notes: input.notes });
-        return `${r.exact ? `Their booking page (${r.platform}) opens with ${input.party_size} people, ${input.date} at ${input.time} filled in` : `I couldn't find this place's own booking page, so this is an OpenTable search for it with ${input.party_size} people, ${input.date} at ${input.time} filled in (it may not be on OpenTable)`}: ${r.url}\n${r.phone ? `Their phone: ${r.phone}. ` : ''}Send the link in one short line, say they just tap to confirm${r.phone ? ' (or call if it\'s not online)' : ''}, and ask them to text you when it's booked. You can't complete the booking yourself or log in to their accounts.`;
+        return `${r.exact ? `Their booking page (${r.platform}) opens with ${input.party_size} people, ${input.date} at ${input.time} filled in` : `I couldn't find this place's own booking page, so this is an OpenTable search for it with ${input.party_size} people, ${input.date} at ${input.time} filled in (it may not be on OpenTable)`}: ${r.url}\n${flow.sms.voice?.enabled
+          // Rall-e can phone the restaurant itself, so offer that instead of handing over the number.
+          ? 'Send the link in one short line (they just tap to confirm), then offer to call the restaurant for them, ending your text with a question like "Or want me to call them for you?". Never give them the restaurant\'s phone number. If they say yes, use call_restaurant.'
+          : `${r.phone ? `Their phone: ${r.phone}. ` : ''}Send the link in one short line, say they just tap to confirm${r.phone ? ' (or call if it\'s not online)' : ''}, and ask them to text you when it's booked.`} You can't log in to their accounts.`;
       }
       if (name === 'call_restaurant') {
         const e = eventById(input.event_id); if (!e) return 'Error: unknown restaurant id. Find the restaurant listing first.';
@@ -397,7 +418,8 @@ export class Agent {
           // Only numbers the host actually typed in their recent texts may be used.
           const typed = this.flow.db.prepare("SELECT body FROM sms_log WHERE phone=? AND direction='in' ORDER BY rowid DESC LIMIT 6").all(phone).map(r => r.body.replace(/\D/g, '')).join(' ');
           const people = (input.people || []).map(x => ({ name: String(x.name || '').trim(), phone: x.phone && digits(x.phone).length === 10 && typed.includes(digits(x.phone)) ? x.phone : '' }));
-          return flow.inviteReport(phone, t, people.filter(x => x.name));
+          // With friends on it, the plan lives on its Rall-e page: hand the host the page in the same reply.
+          return `${flow.inviteReport(phone, t, people.filter(x => x.name))}\nTheir plan page, where RSVPs, picks and ideas come in (include it in this reply, one short line): ${flow.sms.base || 'https://rall-e.ai'}/n/${this.flow.store.nightLink(t.digest)}`;
         }
         if (name === 'add_stop') {
           // Work out the travel time first, so the update friends get already includes it.
@@ -436,13 +458,14 @@ export class Agent {
   }
 
   // ---------- loop ----------
-  // Claude first; on an outage-type failure (5xx/529 overloaded, 429, timeout, network) use OpenAI for this reply and
-  // keep using it for 2 minutes before trying Claude again. Returns Claude-shaped results either way.
+  // Claude first; on an outage-type failure (5xx/529 overloaded, 429, timeout, network) or an account/key problem
+  // (401/403, or a 400 about the key or workspace) use OpenAI for this reply and keep using it for 2 minutes before trying Claude again. Returns Claude-shaped results either way.
   async call(body, state = {}) {
     if (this.openaiKey && (state.backup || Date.now() < this.claudeDownUntil)) { state.backup = true; return this.callOpenAI(body); }
     try { return await this.callClaude(body); }
     catch (error) {
-      const outage = !error.status || error.status >= 500 || error.status === 429 || error.status === 529;
+      const outage = !error.status || error.status >= 500 || error.status === 429 || error.status === 529 || error.status === 401 || error.status === 403
+        || (error.status === 400 && /api key|workspace|credit balance|billing/i.test(error.message));
       if (!this.openaiKey || !outage) throw error;
       console.error(`Claude unavailable (${error.message}); answering with the OpenAI backup.`);
       this.claudeDownUntil = Date.now() + 120000; state.backup = true;
@@ -483,10 +506,11 @@ export class Agent {
     const msg = result.choices?.[0]?.message || {}, uses = (msg.tool_calls || []).map(c => ({ type: 'tool_use', id: c.id, name: c.function.name, input: (() => { try { return JSON.parse(c.function.arguments || '{}'); } catch { return {}; } })() }));
     return { content: [...(msg.content ? [{ type: 'text', text: msg.content }] : []), ...uses], stop_reason: uses.length ? 'tool_use' : 'end_turn', backup: true };
   }
+  claudeHeaders() { return { 'content-type': 'application/json', 'x-api-key': this.key, 'anthropic-version': '2023-06-01', ...(this.workspace ? { 'anthropic-workspace-id': this.workspace } : {}) }; }
   async callClaude(body) {
     const response = await this.fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: AbortSignal.timeout(this.timeout),
-      headers: { 'content-type': 'application/json', 'x-api-key': this.key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify(body)
+      headers: this.claudeHeaders(), body: JSON.stringify(body)
     });
     const result = await response.json().catch(() => ({}));
     if (response.ok) meter.ai(result.usage, response.headers);
