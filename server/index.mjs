@@ -250,7 +250,7 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, { queued: true });
         }
         if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
-        if (url.pathname === '/api/ops/releases/approve') { const input = await body(req); sms.whatsNew.approve(String(input.id || '')); console.log(`Release note approved: ${input.id}`); return json(res, 200, { ...sms.whatsNew.summary(), canApprove: true }); }
+        if (url.pathname === '/api/ops/releases/approve') { const input = await body(req); sms.whatsNew.approve(String(input.id || '')); console.log(`Release note approved: ${input.id}`); try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } return json(res, 200, { ...sms.whatsNew.summary(), canApprove: true }); }
         if (url.pathname === '/api/ops/gap') { const input = await body(req); stats.setGap(String(input.category || ''), input); return json(res, 200, { ok: true }); }
         const input = await body(req), phone = normalizePhone(input.phone || '');
         if (!phone || !(sms.allowed.has(phone) || (url.pathname === '/api/ops/wipe' && sms.db.prepare("SELECT 1 FROM sms_log WHERE phone=? LIMIT 1").get(phone)))) fail(404, 'Not a Rall-e number.');

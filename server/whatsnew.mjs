@@ -74,7 +74,8 @@ export class WhatsNew {
     const live = this.live(); if (!live.length) return [];
     const sent = [];
     for (const phone of this.audience()) {
-      const items = this.pending(phone, live); if (!items.length || !this.ready(phone, now)) continue;
+      // Team-only dev updates skip the timing rules (daytime, mid-conversation, the gap): they're for us, so they go now.
+      const items = this.pending(phone, live); if (!items.length || (!items.some(r => r.team) && !this.ready(phone, now))) continue;
       const status = this.sms.deliver(phone, this.message(items), { kind: 'update' });
       if (status === 'blocked') continue;
       for (const r of items) this.db.prepare('INSERT OR IGNORE INTO update_sent VALUES (?, ?, ?)').run(phone, r.id, now);

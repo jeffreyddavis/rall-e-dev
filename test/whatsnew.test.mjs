@@ -77,3 +77,16 @@ test('team-only dev updates go to the core testers, under their own heading, and
   assert.equal(w.summary().released.find(r => r.id === 't1').team, true);
   store.close();
 });
+
+test('team-only updates go out right away, even at night or within the cooldown', () => {
+  const { store, sms, out } = setup();
+  const w = new WhatsNew(sms, { releases: [{ id: 'm1', date: '2026-10-05', text: 'For everyone.' }] });
+  w.joined = () => 0;
+  w.tick(AFTERNOON); assert.equal(out(A).length, 1);
+  w.releases.push({ id: 't1', date: '2026-10-05', team: true, text: 'Team tool.' });
+  w.tick(NIGHT); // 11 PM in New York: outside the daytime window, but team notes go anyway
+  assert.equal(out(A).length, 2); assert.match(out(A)[1], /For the Rall-e team:\n• Team tool\./);
+  w.releases.push({ id: 'm2', date: '2026-10-05', text: 'Another for everyone.' });
+  assert.deepEqual(w.tick(NIGHT + 60000), []); // regular notes still wait for daytime
+  store.close();
+});
