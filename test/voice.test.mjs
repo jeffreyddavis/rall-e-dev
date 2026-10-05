@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../server/store.mjs';
 import { Sms } from '../server/sms.mjs';
-import { RESERVATION_OUTPUT } from '../server/voice.mjs';
+import { RESERVATION_OUTPUT, END_CALL, spokenDate, spokenTime } from '../server/voice.mjs';
 
 const MEMBER = '+13107770921', VENUE = '+13107770922';
 const DATE = `${new Date().getFullYear() + 1}-10-03`;
@@ -43,8 +43,19 @@ test('call request has no arbitrary destination or card data; signed callback co
   const payload = JSON.parse(request.init.body);
   assert.equal(payload.customer.number, VENUE);
   assert.equal(payload.assistant.firstMessageMode, 'assistant-waits-for-user');
-  assert.match(payload.assistant.model.messages[0].content, /first words must be: "Hi, I'm Rall-e, an AI assistant/);
-  assert.match(payload.assistant.model.messages[0].content, /dtmf tool to press only the key/);
+  const prompt = payload.assistant.model.messages[0].content;
+  assert.match(prompt, /first words must be: "Hi, I'm Rally, an AI assistant/);
+  // Spoken, not digits: the 10-05 test call read "2026-10-10" aloud as "2 0 2 6 1 0 1 0".
+  assert.match(prompt, new RegExp(`on ${spokenDate(DATE)} at 7 PM\\?"`));
+  assert.ok(!prompt.includes(DATE), 'ISO date never reaches the voice prompt');
+  assert.match(prompt, /cut off \(like "for hours, press"\)/);
+  assert.match(prompt, /After pressing, reply with a single space and nothing else until a live person greets you/);
+  assert.match(prompt, /repeat the day, time and party size back in words/);
+  assert.match(prompt, /do not accept or book any other date or time: say the guest will decide, then end the call/);
+  assert.deepEqual([payload.assistant.model.provider, payload.assistant.model.model], ["anthropic", "claude-sonnet-5"]);
+  assert.equal(spokenTime('19:00'), '7 PM'); assert.equal(spokenTime('12:30'), '12:30 PM'); assert.equal(spokenTime('00:15'), '12:15 AM');
+  assert.equal(spokenDate('2026-10-10'), 'Saturday, October 10');
+  assert.match(payload.assistant.model.messages[0].content, /use the dtmf tool to press that one key/);
   assert.match(payload.assistant.model.messages[0].content, /reply with a single space/);
   assert.match(payload.assistant.model.messages[0].content, /try once more with a short pause before the key \(for example "w1"\)/);
   assert.equal(payload.assistant.startSpeakingPlan.smartEndpointingPlan.provider, 'livekit');
@@ -52,7 +63,9 @@ test('call request has no arbitrary destination or card data; signed callback co
   assert.equal(payload.assistant.artifactPlan.recordingEnabled, false);
   assert.equal(payload.assistant.artifactPlan.pcapEnabled, false);
   assert.equal(payload.assistant.artifactPlan.transcriptPlan.enabled, true);
-  assert.deepEqual(payload.assistant.model.tools, [{ type: 'endCall' }, { type: 'dtmf' }]);
+  assert.deepEqual(payload.assistant.model.tools, [END_CALL, { type: 'dtmf' }]);
+  assert.match(END_CALL.messages[0].content, /pass that along to the guest/);
+  assert.match(prompt, /endCall says the thanks and goodbye for you/);
   assert.equal(payload.assistant.artifactPlan.structuredOutputs[0].name, RESERVATION_OUTPUT.name);
   assert.ok(!request.init.body.includes('14155550199'));
   const secret = payload.assistant.server.headers['x-rally-voice-secret'];
