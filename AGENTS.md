@@ -85,7 +85,7 @@ node --test test/*.test.mjs             # unit tests
 Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
 
 ### Deploy (production)
-- `bash scripts/deploy.sh live`. It rsyncs a clean copy, runs `npm ci`, tests and build, then uploads and activates with a health check and **automatic rollback**.
+- `bash scripts/deploy.sh live` (on Windows, run it inside WSL from `/mnt/c/...`; Git Bash has no rsync). It rsyncs a clean copy, runs `npm ci`, tests and build, then uploads and activates with a health check and **automatic rollback**.
   - Needs the SSH alias `rally` (`scripts/ssh-config.example`; get the key from Jeff).
   - Needs the repo `.env`. Server secrets are generated from it; only the whitelisted keys in the script are sent.
 - **Server layout:**

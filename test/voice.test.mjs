@@ -45,6 +45,10 @@ test('call request has no arbitrary destination or card data; signed callback co
   assert.equal(payload.assistant.firstMessageMode, 'assistant-waits-for-user');
   assert.match(payload.assistant.model.messages[0].content, /first words must be: "Hi, I'm Rall-e, an AI assistant/);
   assert.match(payload.assistant.model.messages[0].content, /dtmf tool to press only the key/);
+  assert.match(payload.assistant.model.messages[0].content, /reply with a single space/);
+  assert.match(payload.assistant.model.messages[0].content, /try once more with a short pause before the key \(for example "w1"\)/);
+  assert.equal(payload.assistant.startSpeakingPlan.smartEndpointingPlan.provider, 'livekit');
+  assert.match(payload.assistant.startSpeakingPlan.smartEndpointingPlan.waitFunction, /^t < 30 \?/);
   assert.equal(payload.assistant.artifactPlan.recordingEnabled, false);
   assert.equal(payload.assistant.artifactPlan.pcapEnabled, false);
   assert.equal(payload.assistant.artifactPlan.transcriptPlan.enabled, true);
