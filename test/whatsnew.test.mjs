@@ -48,3 +48,18 @@ test('"no updates" and "updates on" by text; new members skip old news', async (
   assert.deepEqual(w.pending(A).map(r => r.id), ['old']);
   store.close();
 });
+
+test('a held note goes out once it is approved in /ops; the summary shows what went out and what waits', () => {
+  const { store, sms, out } = setup();
+  const w = new WhatsNew(sms, { releases: [{ id: 'r1', date: '2026-10-01', text: 'Live one.' }, { id: 'r2', date: '2026-10-02', text: 'Waiting one.', hold: true }] });
+  w.tick(AFTERNOON);
+  let s = w.summary();
+  assert.deepEqual(s.held.map(r => r.id), ['r2']); assert.deepEqual(s.released.map(r => [r.id, r.sent]), [['r1', 2]]); assert.equal(s.members, 2);
+  assert.throws(() => w.approve('r1'), /already live/); assert.throws(() => w.approve('nope'), /No such release note/);
+  w.approve('r2');
+  s = w.summary();
+  assert.deepEqual(s.held, []); assert.deepEqual(s.released.map(r => r.id), ['r2', 'r1']); // newest first
+  w.tick(AFTERNOON + 4 * 3600000);
+  assert.match(out(A).at(-1), /Waiting one\./);
+  store.close();
+});

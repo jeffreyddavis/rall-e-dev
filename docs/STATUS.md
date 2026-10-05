@@ -44,7 +44,7 @@ _Last updated: 2026-10-05. Update this file with every round of work (see AGENTS
 ## Open items / next
 - **Team task list now lives in `/ops` → Ideas** (both keys). Keep it current there; this list is the dev-side summary.
 - **Paying for things (Stripe Link for agents):** needs Stripe to register a Link OAuth client for a hosted agent (Mike/Marc asking Stripe), ideally on a new dedicated Rall-e Stripe account. Then: connect-your-Link page, spend requests (person approves each purchase), checkout on independent ticket sites. Default limits $500 per purchase and per day.
-- **What's new:** add a `/me` page switch for update texts and an ops view of release notes (`whatsNew.summary()`); use a distinct log kind instead of `update`.
+- **What's new:** add a `/me` page switch for update texts; use a distinct log kind instead of `update`. (The ops view with approvals is done; editing wording there isn't, it's still in `server/releases.mjs`.)
 - **Agent memory:** Phase 2 next (nightly consolidation, episodes, recall search), then Phase 3. See `docs/MEMORY.md`.
 - **Mike's list, not built (see the recommendations in chat / below):**
   - Google Calendar sign-in (OAuth: testing mode is fine for testers; production needs Google verification). Gmail is not recommended (restricted scope needs a paid CASA security assessment).
@@ -64,6 +64,7 @@ _Last updated: 2026-10-05. Update this file with every round of work (see AGENTS
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **10-05, release notes in /ops + "show a feature" for the team:** the three 10-05 notes were approved and released. New `/ops` → **Release notes** tab (`src/ReleasesTab.jsx`): both keys see what went out and to how many members; the operator key also sees held notes with **Approve and send** (stored in `update_approved`, which counts the same as removing `hold`). For investor demos, the viewer key (Mike, Marc) can now use **Have Rall-e show [person] a feature** in Conversations: the server requires a picked feature for that key, while free-form instructions, exact texts and wipes stay operator-only (`/api/ops/nudge` moved ahead of the operator check). Unauthenticated requests to the new routes get 403.
 - **10-05, before the investor call (Jeff's list):**
   - **Only checked, open places:** Google Places results are kept only when their listed hours show them open on the day (or any day of a range) and, if given, at the time (`find_things` has a new `time`, e.g. 19:00 for dinner); places with no listed hours, or already closed for today, are left out (`hoursRanges`/`openAt` in `server/discovery.mjs`; the movie-theater lookup is exempt). `find_things` now runs `check_places` on the top 3 places itself (8 s cap), drops any the check shows closed (Google, that day, or "closed for the season" on their site: `placeClosed` in `server/agent.mjs`), and marks the rest NOT CHECKED; the prompt says to recommend only checked places.
   - **Offer to call, not the number:** when calls are available, `book_table` no longer gives the agent the restaurant's phone; it sends the booking link and ends with "Or want me to call them for you?" (a "yes" then authorizes `call_restaurant`).

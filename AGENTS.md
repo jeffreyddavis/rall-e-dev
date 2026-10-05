@@ -107,11 +107,13 @@ Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
 ### Operating the live demo
 - **`/ops`, operator key (`SMS_OPERATOR_KEY`):**
   - Conversations: every tester, and anyone who has texted in, tagged "not opted in" when we can't reply.
-  - Nudge the agent with an instruction, send exact text, and wipe a person.
+  - Nudge the agent with a free-form instruction, send exact text, and wipe a person.
+  - Release notes: approve held "what's new" notes (Approve and send), which then go to members.
   - Insights, including the "couldn't do" gaps table with status and notes.
   - Usage and remaining quota for Claude, OpenAI, Twilio, Sendblue, SerpApi, Ticketmaster, Google and our caps.
-- **`/ops`, viewer key (`OPS_VIEWER_KEY`)** is for the business side: read-only.
-  - **It must not reveal that operator features exist**, not even on the login page. Operator-only API routes return 404 to viewers.
+- **`/ops`, viewer key (`OPS_VIEWER_KEY`)** is for the team and business side (Mike, Marc): mostly read-only.
+  - They can have Rall-e show someone a feature (pick a feature, optional context): the server requires a feature for this key (10-05, for investor demos). Sources and Ideas are editable too. Release notes shows only what went out.
+  - **It must not reveal that operator features exist** (free-form nudges, exact texts, wipes, approvals), not even on the login page. Operator-only API routes return 404 to viewers.
 - **Follow-ups to a tester:** use `POST /api/ops/nudge {phone, note}` with an instruction. The agent then writes the text in its own voice. Get Jeff's OK before texting testers on his behalf.
 
 ## Product principles

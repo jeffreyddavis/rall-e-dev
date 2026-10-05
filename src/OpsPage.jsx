@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3, CalendarRange, Receipt, Lightbulb } from 'lucide-react';
+import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3, CalendarRange, Receipt, Lightbulb, Megaphone } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './ops.css';
 import Insights from './Insights.jsx';
 import SourcesTab from './SourcesTab.jsx';
 import TransactionsTab from './TransactionsTab.jsx';
 import IdeasTab from './IdeasTab.jsx';
+import ReleasesTab from './ReleasesTab.jsx';
 
-// Dashboard (/ops): live conversations and service usage. The operator key also gets controls to have Rall-e show off
-// a feature, send a text or wipe a conversation; other keys see only the plain dashboard, with no sign that more exists.
+// Dashboard (/ops): live conversations and service usage. Both keys can have Rall-e show someone a feature (the team
+// demos with it); the operator key also gets free-form instructions, exact texts, wipes and release-note approval.
+// Other keys see no sign that those exist.
 const last4 = p => `••• ${p.slice(-4)}`;
 const ago = t => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? 'just now' : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
 const getKey = () => { try { return sessionStorage.getItem('rall-e-ops') || ''; } catch { return ''; } };
@@ -60,6 +62,7 @@ export default function OpsPage() {
       <button className={tab === 'sources' ? 'on' : ''} onClick={() => setTab('sources')}><CalendarRange size={15}/>Sources</button>
       <button className={tab === 'transactions' ? 'on' : ''} onClick={() => setTab('transactions')}><Receipt size={15}/>Transactions</button>
       <button className={tab === 'ideas' ? 'on' : ''} onClick={() => setTab('ideas')}><Lightbulb size={15}/>Ideas</button>
+      <button className={tab === 'releases' ? 'on' : ''} onClick={() => setTab('releases')}><Megaphone size={15}/>Release notes</button>
       <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
     </nav>
     {tab === 'people' && alerts.length > 0 && <button className={`ops-alert ${alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}`} onClick={() => setTab('usage')}>⚠ {alerts.map(c => c.name.split(' (')[0]).join(', ')} {alerts.length === 1 ? 'needs' : 'need'} attention before a demo</button>}
@@ -68,6 +71,7 @@ export default function OpsPage() {
     {tab === 'sources' && <SourcesTab call={call} ago={ago}/>}
     {tab === 'transactions' && <TransactionsTab call={call} ago={ago}/>}
     {tab === 'ideas' && <IdeasTab call={call} ago={ago}/>}
+    {tab === 'releases' && <ReleasesTab call={call} ago={ago}/>}
     {tab === 'usage' && <section className="ops-usage">
       <div className="ops-usage-head"><h2>Service usage</h2><span>{usage ? `Checked ${ago(usage.at)}` : ''}</span><button className="ops-link" disabled={loadingUsage} onClick={loadUsage}><RefreshCw size={14} className={loadingUsage ? 'spin' : ''}/>Refresh</button></div>
       {!usage && <LoaderCircle className="spin"/>}
@@ -106,15 +110,15 @@ export default function OpsPage() {
           </div>)}
           <div ref={end}/>
         </div>
-        {viewer ? null : <div className="ops-controls">
+        {<div className="ops-controls">
           <h3><Sparkles size={15}/>Have Rall-e show {who} a feature</h3>
           <div className="ops-features">{(data?.features || []).map(f => <button key={f.id} className={`${feature === f.id ? 'on' : ''} ${seen.has(f.id) ? 'seen' : ''}`} onClick={() => setFeature(feature === f.id ? '' : f.id)} title={f.pitch}>
             {seen.has(f.id) && <Check size={13}/>}{f.label}</button>)}</div>
           {chosen && <p className="ops-pitch">Rall-e will naturally show {who} {chosen.pitch}.{seen.has(chosen.id) ? ' They’ve seen this one already.' : ''}</p>}
-          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={600} placeholder={feature ? 'Optional context, e.g. “they mentioned date night Friday”' : 'Or tell Rall-e what to do, e.g. “ask if they want to add dessert after dinner”'}/>
-          <button className="button primary ops-go" disabled={busy || thread?.busy || (!feature && !note.trim())} onClick={nudge}>{busy ? <LoaderCircle size={16} className="spin"/> : <Sparkles size={16}/>}Have Rall-e text {who}</button>
-          <button className="ops-link" onClick={() => setShowSay(!showSay)}><MessageSquareText size={14}/>{showSay ? 'Hide' : 'Send an exact text as Rall-e'}</button>
-          {showSay && <div className="ops-say"><textarea value={say} onChange={e => setSay(e.target.value)} rows={2} maxLength={1000} placeholder="Exactly what Rall-e should send"/><button className="button secondary" disabled={busy || !say.trim()} onClick={sendExact}><Send size={15}/>Send</button></div>}
+          <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} maxLength={600} placeholder={feature ? 'Optional context, e.g. “they mentioned date night Friday”' : viewer ? 'Pick a feature above first' : 'Or tell Rall-e what to do, e.g. “ask if they want to add dessert after dinner”'} disabled={viewer && !feature}/>
+          <button className="button primary ops-go" disabled={busy || thread?.busy || (!feature && (viewer || !note.trim()))} onClick={nudge}>{busy ? <LoaderCircle size={16} className="spin"/> : <Sparkles size={16}/>}Have Rall-e text {who}</button>
+          {!viewer && <button className="ops-link" onClick={() => setShowSay(!showSay)}><MessageSquareText size={14}/>{showSay ? 'Hide' : 'Send an exact text as Rall-e'}</button>}
+          {showSay && !viewer && <div className="ops-say"><textarea value={say} onChange={e => setSay(e.target.value)} rows={2} maxLength={1000} placeholder="Exactly what Rall-e should send"/><button className="button secondary" disabled={busy || !say.trim()} onClick={sendExact}><Send size={15}/>Send</button></div>}
         </div>}
       </section>}
     </div>}

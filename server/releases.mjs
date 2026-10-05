@@ -15,7 +15,7 @@ export const RELEASES = [
   { id: '2026-10-02-call-fix', date: '2026-10-02', text: 'Fixed: asking me to call a restaurant now works the way you\'d say it ("call Cure", "call them again", or just "yes" when I offer), instead of me asking you to confirm again.' },
   { id: '2026-10-02-call-details', date: '2026-10-02', text: 'After I call a restaurant, I now tell you why it didn\'t work out and quote what they said (hours, how to book, times they offered).' },
   { id: '2026-10-02-call-menus', date: '2026-10-02', text: 'When I call a restaurant that answers with a phone menu ("press 1 for reservations"), I can now press the button to reach a person.' },
-  { id: '2026-10-05-checked-picks', date: '2026-10-05', text: 'I now check that a place is open when you\'d go (and not closed for the season) before I suggest it. Tell me the time, like "dinner at 7", and I\'ll only pick places open then.', hold: true },
-  { id: '2026-10-05-offer-call', date: '2026-10-05', text: 'Want a table? Along with the booking link, I\'ll offer to call the restaurant for you, so you don\'t have to.', hold: true },
-  { id: '2026-10-05-plan-page', date: '2026-10-05', text: 'Planning with someone else? I\'ll send the Rall-e page right away so you can both see the options, RSVPs and picks in one place.', hold: true }
+  { id: '2026-10-05-checked-picks', date: '2026-10-05', text: 'I now check that a place is open when you\'d go (and not closed for the season) before I suggest it. Tell me the time, like "dinner at 7", and I\'ll only pick places open then.' },
+  { id: '2026-10-05-offer-call', date: '2026-10-05', text: 'Want a table? Along with the booking link, I\'ll offer to call the restaurant for you, so you don\'t have to.' },
+  { id: '2026-10-05-plan-page', date: '2026-10-05', text: 'Planning with someone else? I\'ll send the Rall-e page right away so you can both see the options, RSVPs and picks in one place.' }
 ];

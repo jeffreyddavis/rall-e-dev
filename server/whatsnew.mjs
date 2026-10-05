@@ -16,13 +16,21 @@ export class WhatsNew {
     this.gapHours = Number(env.UPDATES_MIN_GAP_HOURS ?? 3); this.window = [9, 20];
     this.db.exec(`CREATE TABLE IF NOT EXISTS update_prefs (phone TEXT PRIMARY KEY, updates INTEGER NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS update_sent (phone TEXT NOT NULL, release TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (phone, release));
-      CREATE TABLE IF NOT EXISTS update_live (release TEXT PRIMARY KEY, at INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS update_live (release TEXT PRIMARY KEY, at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS update_approved (release TEXT PRIMARY KEY, at INTEGER NOT NULL);`);
   }
-  // A release counts as live from the first time this server saw it without a hold.
+  // A release counts as live from the first time this server saw it without a hold. A held note goes live once Jeff
+  // approves it in /ops (Release notes), same as removing hold in releases.mjs.
+  approved(id) { return Boolean(this.db.prepare('SELECT 1 FROM update_approved WHERE release=?').get(id)); }
+  approve(id) {
+    const r = this.releases.find(x => x.id === id);
+    if (!r?.hold) { const e = new Error(r ? 'That note is already live.' : 'No such release note.'); e.status = r ? 409 : 404; throw e; }
+    this.db.prepare('INSERT OR IGNORE INTO update_approved VALUES (?, ?)').run(id, Date.now());
+  }
   live() {
     const out = [];
     for (const r of this.releases) {
-      if (r.hold || !r.id || !r.text) continue;
+      if ((r.hold && !this.approved(r.id)) || !r.id || !r.text) continue;
       this.db.prepare('INSERT OR IGNORE INTO update_live VALUES (?, ?)').run(r.id, Date.now());
       out.push({ ...r, at: this.db.prepare('SELECT at FROM update_live WHERE release=?').get(r.id).at });
     }
@@ -71,8 +79,10 @@ export class WhatsNew {
   }
   // For the agent ("what's new?") and ops.
   recent(n = 5) { return this.live().slice(-n).map(r => `${r.date}: ${r.text}`); }
+  // For /ops Release notes, newest first: what went out (and to how many) and what is waiting for approval.
   summary() {
-    return this.live().map(r => ({ id: r.id, text: r.text, at: r.at, sent: this.db.prepare('SELECT COUNT(*) AS n FROM update_sent WHERE release=?').get(r.id).n }))
-      .concat(this.releases.filter(r => r.hold).map(r => ({ id: r.id, text: r.text, held: true })));
+    const released = this.live().map(r => ({ id: r.id, date: r.date, text: r.text, at: r.at, sent: this.db.prepare('SELECT COUNT(*) AS n FROM update_sent WHERE release=?').get(r.id).n })).reverse();
+    const held = this.releases.filter(r => r.hold && !this.approved(r.id)).map(r => ({ id: r.id, date: r.date, text: r.text })).reverse();
+    return { released, held, members: this.audience().length };
   }
 }

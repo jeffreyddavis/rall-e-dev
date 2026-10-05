@@ -105,3 +105,9 @@
 .src-status{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap;background:#eef1f2;color:#5c6d76}.src-status.done{background:#e3f4ea;color:#23764a}.src-status.waiting,.src-status.team{background:#fff4dc;color:#7a5200}.src-status.skipped{background:#ffe6e2;color:#8f1d12}
 .ideas-filter{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}.ideas-filter button{border:1px solid #d6dde0;background:#fff;border-radius:14px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer}.ideas-filter button.on{background:#1d3b4f;color:#fff;border-color:#1d3b4f}
 .idea-note{display:block;color:#6b7a82;font-size:12px;margin-top:2px}.src-table select,.src-table td input{font:inherit;font-size:13px;padding:4px 6px;border:1px solid #d6dde0;border-radius:8px;background:#fff;max-width:100%}
+.rel-head{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:#3e7798;margin:18px 4px 8px}
+.rel-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.rel-list li{background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 6px 18px #1d4f7a12;display:flex;flex-direction:column;gap:6px}
+.rel-list li.held{border-left:4px solid #e0a100}
+.rel-list p{margin:0;font-size:15px;line-height:1.4}.rel-list small{color:#8a979d;font-size:12px}
+.rel-list .button{align-self:flex-start;display:inline-flex;align-items:center;gap:6px}

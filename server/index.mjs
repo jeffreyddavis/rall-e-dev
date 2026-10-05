@@ -216,7 +216,11 @@ const server = http.createServer(async (req, res) => {
         // Behind the proxy every request comes from 127.0.0.1, so lockouts are per real client IP.
         const opsIp = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
         const role = sms.opsRole(req.headers.authorization?.replace(/^Bearer /, ''), opsIp);
-        if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, role === 'operator' ? { role, people: sms.opsPeople(), features: FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch })), live: sms.live } : { people: sms.opsPeople() }); // the dashboard key sees no hint of operator controls
+        // Both keys can have Rall-e show someone a feature (Mike and Marc demo with it); the rest stays operator-only.
+        const features = FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch }));
+        if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, role === 'operator' ? { role, people: sms.opsPeople(), features, live: sms.live } : { people: sms.opsPeople(), features }); // the dashboard key sees no hint of operator-only controls
+        // Release notes ("what's new" texts): both keys see what went out; only the operator sees and approves held notes.
+        if (url.pathname === '/api/ops/releases' && req.method === 'GET') { const r = sms.whatsNew.summary(); return json(res, 200, role === 'operator' ? { ...r, canApprove: true } : { released: r.released, members: r.members }); }
         if (url.pathname === '/api/ops/insights' && req.method === 'GET') return json(res, 200, { ...stats.report(), ...(role === 'operator' ? { canEdit: true } : {}) });
         if (url.pathname === '/api/ops/usage' && req.method === 'GET') return json(res, 200, await usageReport(sms));
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
@@ -233,19 +237,24 @@ const server = http.createServer(async (req, res) => {
           else if (op === '/event') await sms.sources.addEvent(input); else if (op === '/event/remove') sms.sources.removeEvent(input.id); else fail(404, 'Not found.');
           return json(res, 200, { sources: sms.sources.list(), manual: sms.sources.manualEvents() });
         }
+        if (url.pathname === '/api/ops/nudge') {
+          const input = await body(req), phone = normalizePhone(input.phone || '');
+          if (!phone || !sms.allowed.has(phone)) fail(404, 'Not a Rall-e number.');
+          if (sms.isStopped(phone)) fail(409, 'They opted out (STOP).');
+          const f = input.feature ? featureById(input.feature) : null, note = String(input.note || '').trim().slice(0, 600);
+          if (role !== 'operator' && !f) fail(400, 'Pick a feature to show them.'); // free-form instructions stay with the operator
+          const instruction = [f?.operator, note && (f ? `Extra context from the team: ${note}` : note)].filter(Boolean).join(' ');
+          if (!instruction) fail(400, 'Pick a feature or write an instruction.');
+          console.log(`${role === 'operator' ? 'Operator' : 'Team'} nudge -> ••• ${phone.slice(-4)}: ${f?.id || 'custom'}`);
+          sms.flow.operatorNudge(phone, instruction);
+          return json(res, 200, { queued: true });
+        }
         if (role !== 'operator') fail(404, 'Not found.'); // the server enforces it, and doesn't advertise that more exists
+        if (url.pathname === '/api/ops/releases/approve') { const input = await body(req); sms.whatsNew.approve(String(input.id || '')); console.log(`Release note approved: ${input.id}`); return json(res, 200, { ...sms.whatsNew.summary(), canApprove: true }); }
         if (url.pathname === '/api/ops/gap') { const input = await body(req); stats.setGap(String(input.category || ''), input); return json(res, 200, { ok: true }); }
         const input = await body(req), phone = normalizePhone(input.phone || '');
         if (!phone || !(sms.allowed.has(phone) || (url.pathname === '/api/ops/wipe' && sms.db.prepare("SELECT 1 FROM sms_log WHERE phone=? LIMIT 1").get(phone)))) fail(404, 'Not a Rall-e number.');
         if (sms.isStopped(phone) && url.pathname !== '/api/ops/wipe') fail(409, 'They opted out (STOP).');
-        if (url.pathname === '/api/ops/nudge') {
-          const f = input.feature ? featureById(input.feature) : null, note = String(input.note || '').trim().slice(0, 600);
-          const instruction = [f?.operator, note && (f ? `Extra context from the team: ${note}` : note)].filter(Boolean).join(' ');
-          if (!instruction) fail(400, 'Pick a feature or write an instruction.');
-          console.log(`Operator nudge -> ••• ${phone.slice(-4)}: ${f?.id || 'custom'}`);
-          sms.flow.operatorNudge(phone, instruction);
-          return json(res, 200, { queued: true });
-        }
         if (url.pathname === '/api/ops/wipe') {
           // Permanent. The operator types the last 4 digits to confirm.
           if (String(input.confirm || '') !== phone.slice(-4)) fail(400, 'Type the last 4 digits of their number to confirm.');
