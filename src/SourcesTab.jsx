@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Trash2, Plus, ExternalLink } from 'lucide-react';
+import { RefreshCw, Trash2, Plus, ExternalLink, Wand2 } from 'lucide-react';
 import { SOURCE_NOTES } from './sourceNotes.js';
 
 // Both dashboard keys: curated event sources per city (calendar feeds and event pages). See docs/DATA_SOURCES.md.
+// A source showing 0 or 1 events gets a debugging run (server/sourcedebug.mjs) that saves a rule for reading it.
 export default function SourcesTab({ call, ago }) {
   const [manual, setManual] = useState([]), [ev, setEv] = useState({ title: '', date: '', time: '', venue: '', city: '', price: '', url: '' }),
     [sources, setSources] = useState(null), [url, setUrl] = useState(''), [city, setCity] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(''), [error, setError] = useState('');
@@ -40,7 +41,10 @@ export default function SourcesTab({ call, ago }) {
     </details>
     {!sources ? <p className="ins-empty">Loading…</p> : !sources.length ? <p className="ins-empty">No sources yet. Add a Luma or Meetup calendar feed, a venue’s calendar, or a city events page.</p> :
       <table className="src-table"><thead><tr><th>Source</th><th>City</th><th>Events</th><th>Checked</th><th/></tr></thead><tbody>{sources.map(s => <tr key={s.id}>
-        <td><strong>{s.name}</strong><a href={s.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={12}/>{s.kind || 'link'}</a>{s.error && <small className="src-error">{s.error}</small>}</td>
+        <td><strong>{s.name}</strong><a href={s.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={12}/>{s.kind || 'link'}</a>{s.error && <small className="src-error">{s.error}</small>}
+          {s.debugging ? <small className="src-debug">Working out how to read this page…</small>
+            : s.debug_note && <small className="src-debug">{s.rule ? 'Fixed: ' : 'Checked: '}{s.debug_note}</small>}
+          {!s.debugging && s.found <= 1 && <button className="ops-link src-fix" disabled={!!busy} onClick={() => run(`fix${s.id}`, () => call('sources/debug', { id: s.id }))}><Wand2 size={13}/>Try to fix</button>}</td>
         <td>{s.city}</td><td>{s.found}</td><td>{s.fetched ? ago(s.fetched) : '—'}</td>
         <td className="src-actions"><button className="ops-link" disabled={!!busy} onClick={() => run(s.id, () => call('sources/refresh', { id: s.id }))} aria-label={`Check ${s.name} now`}><RefreshCw size={14} className={busy === s.id ? 'spin' : ''}/></button>
           <button className="ops-link" disabled={!!busy} onClick={() => run(s.id, () => call('sources/remove', { id: s.id }))} aria-label={`Remove ${s.name}`}><Trash2 size={14}/></button></td>

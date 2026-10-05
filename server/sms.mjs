@@ -1,6 +1,7 @@
 import { Invites } from './invites.mjs';
 import { Photos } from './photos.mjs';
 import { Sources } from './sources.mjs';
+import { SourceDebugger } from './sourcedebug.mjs';
 import { Polls } from './polls.mjs';
 import { Memory } from './memory.mjs';
 import { WhatsNew } from './whatsnew.mjs';
@@ -89,6 +90,7 @@ export class Sms {
     this.favorites = new Favorites(this);
     this.memory = new Memory(this); this.memory.attach(store); try { this.memory.migrate(); } catch (e) { console.error('Memory migration:', e.message); }
     this.sources = new Sources(this, env, fetchImpl); this.discovery.curated = this.sources;
+    this.sources.debugger = new SourceDebugger(this.sources, env); // works out how to read sources that show 0 or 1 events
     this.lastMedia = new Map();
     this.labPhones = new Set(); // fictional 555 phones the presenter is playing in /lab (replies are recorded, never sent) // phone -> the latest photo they texted { url, type, at }
     // Plan pages show people's profile photos: find the phone behind a host (participant '') or a friend on a plan.

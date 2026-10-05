@@ -112,3 +112,4 @@
 .rel-list p{margin:0;font-size:15px;line-height:1.4}.rel-list small{color:#8a979d;font-size:12px}
 .rel-list .button{align-self:flex-start;display:inline-flex;align-items:center;gap:6px}
 .rel-team{font-style:normal;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8eefc;color:#2c4fa0;margin-right:8px}
+.src-debug{display:block;color:#2c4fa0;font-size:12px;margin-top:4px}.src-fix{margin-top:4px;font-size:12px}

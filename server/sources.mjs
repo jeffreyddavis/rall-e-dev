@@ -70,6 +70,53 @@ export function parseJsonLd(html) {
   for (const m of String(html).matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) { try { visit(JSON.parse(m[1].trim())); } catch {} }
   return out;
 }
+// Only public web addresses: never this server, the cloud metadata service or a private network (source links and
+// the links a debugging run follows come from outside).
+export function isPublicUrl(value) {
+  let u; try { u = new URL(String(value)); } catch { return false; }
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (!/^https?:$/.test(u.protocol) || !h.includes('.') && !h.includes(':')) return false;
+  if (/^(localhost|0\.|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)) return false;
+  if (/^(::1?|f[cd][0-9a-f]{2}:|fe80:)/.test(h) || /\.(local|internal|localhost)$/.test(h)) return false;
+  return true;
+}
+// ---------- per-source rules ----------
+// A rule says where a source's events really are when its page shows none (they load a second later from an API, a
+// feed or a widget). The debugging agent (server/sourcedebug.mjs) finds and tests them; refreshes use them first.
+//   {type:'ics', url} · {type:'jsonld', url} · {type:'ai', url} (AI reads that page) ·
+//   {type:'json', url, items:'path.to.list', fields:{title, start, time?, venue?, address?, url?, image?, description?, price?}}
+// Paths are dotted ("venue.name", "images.0.url"). In a rule's url, {today} and {end} are today and today + 90 days.
+export const RULE_TYPES = { ics: 'calendar feed', jsonld: 'event page', ai: 'page (read by AI)', json: 'JSON API' };
+const at = (obj, path) => !path ? undefined : String(path).split('.').filter(Boolean).reduce((v, k) => v == null ? v : v[k], obj);
+export function whenOf(value, lng = -100) {
+  if (value == null || value === '') return null;
+  const shift = ms => { const d = new Date(ms + (Math.round(lng / 15) + 1) * 3600000).toISOString(); return { date: d.slice(0, 10), time: d.slice(11, 16) }; };
+  if (typeof value === 'number' || /^\d{10,13}$/.test(String(value).trim())) { const n = Number(value); return shift(n < 1e12 ? n * 1000 : n); }
+  const s = String(value).trim(), m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(s);
+  if (m) return m[2] && /(Z|[+-]00:?00)$/i.test(s) ? shift(Date.parse(s.replace(' ', 'T'))) : { date: m[1], time: m[2] || '' }; // a UTC time moves to local
+  const t = Date.parse(s); if (Number.isNaN(t)) return null;
+  const d = new Date(t), p = n => String(n).padStart(2, '0'); // written out ("Oct 7, 2026 7:00 PM"): already local
+  return { date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, time: /\d:\d\d/.test(s) ? `${p(d.getHours())}:${p(d.getMinutes())}` : '' };
+}
+const timeOf = v => { const m = /(\d{1,2}):(\d{2})\s*(am|pm)?/i.exec(String(v || '')); if (!m) return ''; let h = Number(m[1]) % (m[3] ? 12 : 24); if (/pm/i.test(m[3] || '')) h += 12; return `${String(h).padStart(2, '0')}:${m[2]}`; };
+export function ruleUrl(template, base) {
+  const day = n => new Date(Date.now() + n * DAY).toISOString().slice(0, 10);
+  try { return new URL(String(template || '').replace(/\{today\}/g, day(0)).replace(/\{end\}/g, day(90)), base).href; } catch { return ''; }
+}
+export function jsonEvents(data, rule, base, lng) {
+  const list = rule.items ? at(data, rule.items) : data, f = rule.fields || {};
+  if (!Array.isArray(list)) throw new Error(`No list at "${rule.items || '(top level)'}" in that JSON.`);
+  const text = v => String(v ?? '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+  const link = v => { try { return v ? new URL(String(v), base).href : ''; } catch { return ''; } };
+  return list.map(x => {
+    const w = whenOf(at(x, f.start), lng), title = text(at(x, f.title)).slice(0, 120);
+    if (!w || !title) return null;
+    const price = at(x, f.price);
+    return { title, date: w.date, time: f.time ? timeOf(at(x, f.time)) : w.time, venue: text(at(x, f.venue)).slice(0, 120), address: text(at(x, f.address)).slice(0, 200),
+      url: link(at(x, f.url)), image: link(at(x, f.image)) || null, description: text(at(x, f.description)).slice(0, 300),
+      price: price == null || price === '' ? '' : typeof price === 'number' ? (price ? `$${price}` : 'Free') : text(price).slice(0, 40) };
+  }).filter(Boolean);
+}
 const pageText = html => String(html).replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<a [^>]*href="([^"]+)"[^>]*>/gi, ' [link $1] ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, '\n')
   .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 
@@ -81,14 +128,19 @@ export class Sources {
         created INTEGER NOT NULL, fetched INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT, active INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS curated_events (id TEXT PRIMARY KEY, source TEXT NOT NULL, day TEXT NOT NULL, lat REAL, lng REAL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS curated_events_day ON curated_events(day);`);
-    try { this.db.exec('ALTER TABLE event_sources ADD COLUMN text_hash TEXT'); } catch {}
+    for (const col of ['text_hash TEXT', 'rule TEXT', 'debug_tries INTEGER NOT NULL DEFAULT 0', 'debug_note TEXT', 'debug_at INTEGER']) try { this.db.exec(`ALTER TABLE event_sources ADD COLUMN ${col}`); } catch {}
+    this.db.exec('CREATE TABLE IF NOT EXISTS source_debug_runs (source TEXT NOT NULL, at INTEGER NOT NULL)');
+    this.debugQueue = new Set(); this.debugChain = Promise.resolve(); this.debugDaily = Number(env.SOURCE_DEBUG_DAILY || 40);
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
   }
   get discovery() { return this.sms.discovery; }
-  list() { return this.db.prepare("SELECT id, url, name, city, kind, created, fetched, found, error, active FROM event_sources WHERE url NOT LIKE 'rall-e:%' ORDER BY created DESC").all(); }
+  list() {
+    return this.db.prepare("SELECT id, url, name, city, kind, created, fetched, found, error, active, rule, debug_tries, debug_note, debug_at FROM event_sources WHERE url NOT LIKE 'rall-e:%' ORDER BY created DESC").all()
+      .map(({ rule, ...s }) => ({ ...s, rule: rule ? RULE_TYPES[JSON.parse(rule).type] || 'rule' : null, debugging: this.debugQueue.has(s.id) }));
+  }
   async add({ url, city, name = '' }) {
     let u; try { u = new URL(String(url || '').trim()); } catch { fail(400, 'Paste a full link (https://…).'); }
-    if (!/^https?:$/.test(u.protocol) || /^(localhost|127\.|10\.|192\.168\.)/.test(u.hostname)) fail(400, 'Paste a public web link.');
+    if (!isPublicUrl(u.href)) fail(400, 'Paste a public web link.');
     if (!String(city || '').trim()) fail(400, 'Which city are these events in?');
     const place = await this.discovery.geocode(String(city).trim());
     if (place?.lat == null) fail(400, 'I couldn’t find that city. Try "Austin, TX".');
@@ -131,32 +183,21 @@ export class Sources {
     const path = u.pathname + u.search, hit = rules.filter(test).sort((a, b) => b.length - a.length)[0];
     return !hit || hit.startsWith('!');
   }
-  async refresh(id) {
+  async refresh(id, { debug = true } = {}) {
     const src = this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id); if (!src) fail(404, 'No such source.');
     if (src.url.startsWith('rall-e:')) return { found: src.found, error: null }; // added by hand, nothing to fetch
-    const done = (found, kind, error = null) => { this.db.prepare('UPDATE event_sources SET fetched=?, found=?, kind=COALESCE(?, kind), error=? WHERE id=?').run(Date.now(), found, kind, error, id); return { found, error }; };
+    const done = (found, kind, error = null) => {
+      this.db.prepare('UPDATE event_sources SET fetched=?, found=?, kind=COALESCE(?, kind), error=? WHERE id=?').run(Date.now(), found, kind, error, id);
+      // People add sources that have events, so 0 or 1 almost always means we read it wrong: work out how, once or twice.
+      if (debug && found <= 1 && !/robots\.txt/.test(error || '')) this.debugLater(id);
+      return { found, error };
+    };
     try {
-      const u = new URL(src.url);
-      if (!(await this.allowed(u))) return done(0, null, 'This site asks bots not to read that page (robots.txt).');
-      const r = await this.fetch(src.url, { headers: { 'User-Agent': UA, Accept: 'text/calendar, text/html;q=0.9, */*;q=0.5' }, signal: AbortSignal.timeout(20000), redirect: 'follow' });
-      if (!r.ok) return done(0, null, `The page answered ${r.status}.`);
-      const body = (await r.text()).slice(0, 3_000_000), type = r.headers.get('content-type') || '';
-      let raw, kind;
-      if (/text\/calendar/i.test(type) || /^\s*BEGIN:VCALENDAR/.test(body)) { raw = parseIcs(body, src.lng); kind = 'calendar feed'; }
-      else {
-        // Localist (many universities, museums, cities) has an open JSON API; prefer it over the page.
-        const viaLocalist = /localist/i.test(body) ? await this.localist(u).catch(() => []) : [];
-        raw = viaLocalist.length ? viaLocalist : parseJsonLd(body); kind = viaLocalist.length ? 'Localist calendar' : 'event page';
-        // A calendar feed the page links to or its CMS exposes (The Events Calendar, CivicPlus, etc.) beats AI reading.
-        if (!raw.length) { const feed = await this.findFeed(u, body, src.lng ?? -100).catch(() => null); if (feed?.events.length) { raw = feed.events; kind = 'calendar feed (found on page)'; } }
-        if (!raw.length) {
-          // Reading a page with AI costs money: when the text hasn't changed since last time, keep the events we have.
-          const text = pageText(body), h = short(text);
-          if (src.text_hash === h && src.found > 0) return done(src.found, 'page (read by AI)');
-          raw = await this.extract(text, src); kind = 'page (read by AI)';
-          this.db.prepare('UPDATE event_sources SET text_hash=? WHERE id=?').run(h, id);
-        }
-      }
+      let got = null;
+      if (src.rule) got = await this.ruleEvents(JSON.parse(src.rule), src).then(raw => raw.length ? { raw, kind: `${RULE_TYPES[JSON.parse(src.rule).type]} (saved rule)` } : null).catch(() => null);
+      got ||= await this.pageEvents(src);
+      if (got.done) return done(...got.done);
+      const { raw, kind } = got;
       const today = new Date().toISOString().slice(0, 10), horizon = new Date(Date.now() + 90 * DAY).toISOString().slice(0, 10);
       const upcoming = raw.filter(e => e.title && e.date >= today && e.date <= horizon).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 150);
       const events = [];
@@ -166,6 +207,65 @@ export class Sources {
       for (const e of events) { registerEvent(e); put.run(e.id, id, e.localDate, e.lat, e.lng, JSON.stringify(e)); }
       return done(events.length, kind, raw.length && !events.length ? 'No upcoming events found in the next 90 days.' : raw.length ? null : 'No events found on that page.');
     } catch (error) { return done(0, null, String(error.message).slice(0, 160)); }
+  }
+  // The source's own link: a feed, schema.org events, Localist, a feed the page links to, else AI reads the page.
+  // Returns { raw, kind } or { done: [found, kind, error] } when there's nothing new to read.
+  async pageEvents(src) {
+    const u = new URL(src.url);
+    if (!(await this.allowed(u))) return { done: [0, null, 'This site asks bots not to read that page (robots.txt).'] };
+    const r = await this.fetch(src.url, { headers: { 'User-Agent': UA, Accept: 'text/calendar, text/html;q=0.9, */*;q=0.5' }, signal: AbortSignal.timeout(20000), redirect: 'follow' });
+    if (!r.ok) return { done: [0, null, `The page answered ${r.status}.`] };
+    const body = (await r.text()).slice(0, 3_000_000), type = r.headers.get('content-type') || '';
+    if (/text\/calendar/i.test(type) || /^\s*BEGIN:VCALENDAR/.test(body)) return { raw: parseIcs(body, src.lng), kind: 'calendar feed' };
+    // Localist (many universities, museums, cities) has an open JSON API; prefer it over the page.
+    const viaLocalist = /localist/i.test(body) ? await this.localist(u).catch(() => []) : [];
+    let raw = viaLocalist.length ? viaLocalist : parseJsonLd(body), kind = viaLocalist.length ? 'Localist calendar' : 'event page';
+    // A calendar feed the page links to or its CMS exposes (The Events Calendar, CivicPlus, etc.) beats AI reading.
+    if (!raw.length) { const feed = await this.findFeed(u, body, src.lng ?? -100).catch(() => null); if (feed?.events.length) { raw = feed.events; kind = 'calendar feed (found on page)'; } }
+    if (!raw.length) {
+      // Reading a page with AI costs money: when the text hasn't changed since last time, keep the events we have.
+      const text = pageText(body), h = short(text);
+      if (src.text_hash === h && src.found > 1) return { done: [src.found, 'page (read by AI)'] };
+      raw = await this.extract(text, src); kind = 'page (read by AI)';
+      this.db.prepare('UPDATE event_sources SET text_hash=? WHERE id=?').run(h, src.id);
+    }
+    return { raw, kind };
+  }
+  // Events through a saved rule (see RULE_TYPES above). Also what the debugging agent tests a rule with.
+  async ruleEvents(rule, src) {
+    const url = ruleUrl(rule.url, src.url);
+    if (!RULE_TYPES[rule.type]) throw new Error(`Unknown rule type "${rule.type}".`);
+    if (!isPublicUrl(url)) throw new Error('A rule needs a public web link.');
+    if (!(await this.allowed(new URL(url)))) throw new Error('That site asks bots not to read this link (robots.txt).');
+    const accept = { json: 'application/json, */*;q=0.5', ics: 'text/calendar, */*;q=0.5' }[rule.type] || 'text/html, */*;q=0.5';
+    const r = await this.fetch(url, { headers: { 'User-Agent': UA, Accept: accept }, signal: AbortSignal.timeout(20000), redirect: 'follow' });
+    if (!r.ok) throw new Error(`The link answered ${r.status}.`);
+    const body = (await r.text()).slice(0, 5_000_000);
+    if (rule.type === 'ics') return parseIcs(body, src.lng ?? -100);
+    if (rule.type === 'jsonld') return parseJsonLd(body);
+    if (rule.type === 'ai') return this.extract(pageText(body), { ...src, url });
+    let data; try { data = JSON.parse(body.replace(/^[^[{]*/, '')); } catch { throw new Error('That link doesn\'t return JSON.'); }
+    return jsonEvents(data, rule, url, src.lng ?? -100);
+  }
+  saveRule(id, rule, note) { this.db.prepare('UPDATE event_sources SET rule=?, debug_note=? WHERE id=?').run(JSON.stringify(rule), String(note || '').slice(0, 300), id); }
+  // Queue one debugging run (server/sourcedebug.mjs), at most twice per source unless someone asks again in /ops.
+  debugLater(id, { force = false } = {}) {
+    const src = this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id);
+    if (!src || src.url.startsWith('rall-e:') || this.debugQueue.has(id) || !this.debugger || !this.sms.flow?.agent?.key) return false;
+    if (!force && src.debug_tries >= 2) return false;
+    if (this.db.prepare('SELECT COUNT(*) AS n FROM source_debug_runs WHERE at>?').get(Date.now() - DAY).n >= this.debugDaily) return false;
+    this.db.prepare('UPDATE event_sources SET debug_tries=?, debug_at=? WHERE id=?').run(force ? 1 : src.debug_tries + 1, Date.now(), id);
+    this.db.prepare('INSERT INTO source_debug_runs VALUES (?, ?)').run(id, Date.now());
+    this.debugQueue.add(id);
+    this.debugChain = this.debugChain.then(async () => {
+      try {
+        const result = await this.debugger.run(id).catch(e => ({ note: `The check failed: ${String(e.message).slice(0, 120)}` }));
+        if (!result?.saved) this.db.prepare('UPDATE event_sources SET debug_note=? WHERE id=?').run(String(result?.note || 'No way to read its events found.').slice(0, 300), id);
+        this.debugQueue.delete(id); // before the refresh, so /ops shows the result as soon as it's in
+        if (result?.saved) await this.refresh(id, { debug: false }).catch(() => {});
+      } catch (e) { console.error('Source debug:', e.message); } finally { this.debugQueue.delete(id); }
+    });
+    return true;
   }
   // Localist calendars: /api/2/events (public reads). One entry per upcoming occurrence.
   async localist(u) {
@@ -277,5 +377,7 @@ export class Sources {
     const tick = async () => { for (const s of this.db.prepare("SELECT id FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND (fetched IS NULL OR fetched < ?)").all(Date.now() - 12 * 3600000)) await this.refresh(s.id).catch(() => {}); };
     this.timer = setInterval(() => tick().catch(() => {}), 3600000); this.timer.unref?.();
     setTimeout(() => tick().catch(() => {}), 60000).unref?.();
+    // Sources already showing 0 or 1 events get their debugging run too (one at a time, within the daily cap).
+    setTimeout(() => { for (const s of this.db.prepare("SELECT id FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND found<=1 AND debug_tries<2 AND (error IS NULL OR error NOT LIKE '%robots.txt%')").all()) this.debugLater(s.id); }, 90000).unref?.();
   }
 }

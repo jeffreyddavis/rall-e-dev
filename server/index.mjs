@@ -234,6 +234,7 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname.startsWith('/api/ops/sources')) {
           const input = await body(req), op = url.pathname.slice('/api/ops/sources'.length);
           if (op === '') await sms.sources.add(input); else if (op === '/refresh') await sms.sources.refresh(String(input.id || '')); else if (op === '/remove') sms.sources.remove(String(input.id || ''));
+          else if (op === '/debug') sms.sources.debugLater(String(input.id || ''), { force: true });
           else if (op === '/event') await sms.sources.addEvent(input); else if (op === '/event/remove') sms.sources.removeEvent(input.id); else fail(404, 'Not found.');
           return json(res, 200, { sources: sms.sources.list(), manual: sms.sources.manualEvents() });
         }

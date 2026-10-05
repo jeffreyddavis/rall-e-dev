@@ -21,5 +21,6 @@ export const RELEASES = [
   { id: '2026-10-05-plan-page', date: '2026-10-05', text: 'Planning with someone else? I\'ll send the Rall-e page right away so you can both see the options, RSVPs and picks in one place.' },
   { id: '2026-10-05-team-updates', date: '2026-10-05', team: true, hold: true, text: 'You now get team-only updates like this one, about tools for the three of us. Regular members never see them.' },
   { id: '2026-10-05-team-sources', date: '2026-10-05', team: true, hold: true, text: 'Text me an event website and its city ("add this source for Austin: https://...") and I\'ll add it as a source right away, no review. It shows up in /ops → Sources.' },
-  { id: '2026-10-05-team-ideas', date: '2026-10-05', team: true, hold: true, text: 'Text me an idea, feedback or a bug ("idea: ...") and I\'ll put it straight on the team list in /ops → Ideas.' }
+  { id: '2026-10-05-team-ideas', date: '2026-10-05', team: true, hold: true, text: 'Text me an idea, feedback or a bug ("idea: ...") and I\'ll put it straight on the team list in /ops → Ideas.' },
+  { id: '2026-10-05-team-source-fixer', date: '2026-10-05', team: true, hold: true, text: 'Sources that show 0 or 1 events now fix themselves: a smarter check works out where the page really loads its events from and saves a rule for it. See the "Fixed:" notes in /ops → Sources, or tap Try to fix.' }
 ];

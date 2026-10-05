@@ -31,6 +31,13 @@ When a source page has no structured event data, Rall-e looks for a feed before 
 
 The same checks run when the agent checks a venue (`check_places`). Example: adding `https://calendar.usc.edu/` picked up 150 events through Localist.
 
+## Fixing sources that show 0 or 1 events (since 10-05)
+People add sources that clearly list events, so a refresh that finds 0 or 1 is treated as a reading problem. Usually the page loads its events a second after it opens (JavaScript calling an API, a calendar widget, a feed), so its HTML has none.
+- A one-time **debugging run** (`server/sourcedebug.mjs`, Claude Opus, `SOURCE_DEBUG_MODEL`) looks at the page like a developer: scripts, iframes, embedded JSON, feed and API links. It tests a rule and saves it only if it reads at least 2 upcoming events.
+- **Rules** (`event_sources.rule`): an `.ics` feed, a JSON API with a field mapping, another page with schema.org events, or AI reading of a better list page. Refreshes use the saved rule first.
+- At most **2 runs per source**, one at a time, up to 40 a day (`SOURCE_DEBUG_DAILY`). `/ops` → Sources shows "Working out how to read this page…", then "Fixed: …" or "Checked: …", and a **Try to fix** button for another run.
+- Same limits as everything else: public pages only, robots.txt honored, plain GET requests, no logins, API keys or tokens, nothing on private networks, and never Resident Advisor's or DICE's internal APIs (see below). Pages that only show events in a real browser are reported, not worked around.
+
 ## One-off events by hand
 `/ops` → Sources → "Add a one-off event by hand" (both keys). Use it for supper clubs, pop-ups, night markets and other things with no feed. The doc calls this "own the deserts." The events show up in searches near that city.
 

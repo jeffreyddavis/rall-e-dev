@@ -89,3 +89,60 @@ test('the team can add and remove one-off events by hand', async () => {
   await assert.rejects(sms.sources.addEvent({ title: 'x', date: 'soon', city: 'Providence, RI' }), /Pick a date/);
   store.close();
 });
+
+test('rules: JSON events are mapped by path, dates read in any common form, and only public links are allowed', async () => {
+  const { jsonEvents, whenOf, isPublicUrl, ruleUrl } = await import('../server/sources.mjs');
+  const a = soon(4);
+  assert.deepEqual(whenOf(`${a.d}T20:00:00-07:00`), { date: a.d, time: '20:00' });
+  assert.deepEqual(whenOf(`${a.d} 19:15:00`), { date: a.d, time: '19:15' });
+  assert.deepEqual(whenOf(`${a.d}T03:00:00Z`, -118.2), { date: new Date(Date.parse(`${a.d}T03:00:00Z`) - 7 * 3600000).toISOString().slice(0, 10), time: '20:00' }); // UTC moves to local
+  assert.equal(whenOf(Date.parse(`${a.d}T03:00:00Z`), -118.2).time, '20:00'); // epoch ms
+  assert.equal(whenOf(''), null); assert.equal(whenOf('soon'), null);
+  const data = { upcoming: [{ title: 'Open <b>Mic</b>', startDate: `${a.d}T19:00:00-04:00`, location: { addressTitle: 'The Parlour' }, fullUrl: '/events/open-mic', assetUrl: 'https://img.example/x.jpg' }, { title: '', startDate: a.d }] };
+  const rule = { type: 'json', url: '/events?format=json', items: 'upcoming', fields: { title: 'title', start: 'startDate', venue: 'location.addressTitle', url: 'fullUrl', image: 'assetUrl' } };
+  assert.deepEqual(jsonEvents(data, rule, 'https://venue.example/events?format=json', -71).map(e => [e.title, e.date, e.time, e.venue, e.url]), [['Open Mic', a.d, '19:00', 'The Parlour', 'https://venue.example/events/open-mic']]);
+  assert.throws(() => jsonEvents(data, { ...rule, items: 'nope' }, 'https://x.example', -71), /No list at "nope"/);
+  for (const bad of ['http://localhost/x', 'http://169.254.169.254/latest', 'http://10.0.0.5/', 'http://192.168.1.1', 'http://172.20.0.1', 'http://[::1]/', 'file:///etc/passwd', 'http://intranet/', 'http://db.internal/']) assert.equal(isPublicUrl(bad), false, bad);
+  assert.equal(isPublicUrl('https://www.lapl.org/whats-on/events'), true);
+  assert.match(ruleUrl('/wp-json/tribe/events/v1/events?start_date={today}&end_date={end}', 'https://venue.example/events/'), /^https:\/\/venue\.example\/wp-json\/tribe\/events\/v1\/events\?start_date=\d{4}-\d{2}-\d{2}&end_date=\d{4}-\d{2}-\d{2}$/);
+});
+
+test('a source that reads 0 or 1 events gets a debugging run (twice at most) that saves a rule the next refresh uses', async () => {
+  const a = soon(3), b = soon(6);
+  const api = { events: [{ name: 'Trivia Night', start: `${a.d} 19:00:00` }, { name: 'Vinyl Swap', start: `${b.d} 12:00:00` }] };
+  const pages = { 'https://venue.example/events': '<html><body><div id="app">Loading…</div><script src="/app.js"></script></body></html>', 'https://venue.example/app.js': 'fetch("/api/events.json").then(r=>r.json())', 'https://venue.example/api/events.json': JSON.stringify(api) };
+  const fetchImpl = async (url) => {
+    if (url.includes('robots.txt')) return { ok: false, text: async () => '' };
+    if (url.includes('geocode')) return { ok: true, status: 200, headers: new Map(), json: async () => ({ results: [{ geometry: { location: { lat: 42.36, lng: -71.06 } }, address_components: [{ long_name: 'Boston', short_name: 'Boston', types: ['locality'] }, { long_name: 'Massachusetts', short_name: 'MA', types: ['administrative_area_level_1'] }] }] }) };
+    if (url in pages) return { ok: true, status: 200, url, headers: new Map([['content-type', url.endsWith('.json') ? 'application/json' : url.endsWith('.js') ? 'application/javascript' : 'text/html']]), text: async () => pages[url] };
+    return { ok: false, status: 404, headers: new Map(), text: async () => '' };
+  };
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', GOOGLE_MAPS_API_KEY: 'gk' }, { messages: { create: async () => ({}) } }, fetchImpl);
+  // A scripted "smarter agent": inspect the page, then the script, then save the API as a rule.
+  const agent = sms.flow.agent, script = [
+    { type: 'tool_use', id: 't1', name: 'inspect', input: { url: 'https://venue.example/events' } },
+    { type: 'tool_use', id: 't2', name: 'find', input: { url: '/app.js', text: 'fetch(' } },
+    { type: 'tool_use', id: 't3', name: 'save_rule', input: { rule: { type: 'json', url: '/api/events.json', items: 'events', fields: { title: 'name', start: 'start' } }, note: 'Events load from /api/events.json after the page opens.' } }];
+  const seen = [];
+  agent.key = 'test-key';
+  agent.fetch = async (url, init) => { const body = JSON.parse(init.body); seen.push(body); const step = script[seen.length - 1]; return { ok: true, headers: new Map(), json: async () => ({ content: [step], usage: {} }) }; };
+  sms.sources.extract = async () => []; // the page text itself has no events (AI reading finds none)
+  const src = await sms.sources.add({ url: 'https://venue.example/events', city: 'Boston, MA' });
+  assert.equal(src.found, 0);
+  await sms.sources.debugChain;
+  assert.equal(seen[0].model, 'claude-opus-5-5');
+  assert.match(JSON.stringify(seen[1].messages.at(-1)), /Scripts: \/app\.js/); // inspect showed the script
+  assert.match(JSON.stringify(seen[2].messages.at(-1)), /fetch\(\\"\/api\/events\.json\\"\)/);
+  const fixed = sms.sources.list()[0];
+  assert.equal(fixed.found, 2); assert.equal(fixed.rule, 'JSON API'); assert.equal(fixed.kind, 'JSON API (saved rule)'); assert.match(fixed.debug_note, /api\/events\.json/);
+  assert.equal(fixed.debug_tries, 1);
+  // Never on a loop: twice at most, unless someone asks again from /ops.
+  store.db.prepare('UPDATE event_sources SET found=0, debug_tries=2').run();
+  assert.equal(sms.sources.debugLater(fixed.id), false);
+  seen.length = 0; script.splice(0, 3, { type: 'tool_use', id: 'g1', name: 'give_up', input: { reason: 'Only shows events in a real browser.' } });
+  assert.equal(sms.sources.debugLater(fixed.id, { force: true }), true);
+  await sms.sources.debugChain;
+  assert.match(sms.sources.list()[0].debug_note, /real browser/);
+  store.close();
+});
