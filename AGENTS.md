@@ -100,7 +100,7 @@ Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
 - **Wipe everyone before going public:** `node server/wipe-all.mjs --confirm-wipe-all-conversations`, run on the server via `server-node.sh`. Also delete the `rally.pre-*.sqlite` backups then.
 
 ### Git
-- Remote: `github.com/jeffreyddavis/rall-e`, branch `master`. **Push every finished, tested and deployed round.**
+- Remote: `github.com/jeffreyddavis/rall-e-dev`, branch `master` (moved 10-05 with the leaked env file purged from history; the old `rall-e` repo is retired). **Push every finished, tested and deployed round.**
 - `bash scripts/gitpush.sh <message-file>` does `git add -A`, a **secret scan** (every `.env` value plus common key patterns; it refuses if any is found), then commits and pushes. It uses `GITHUB_TOKEN` from `.env` only for the push, and sets `GIT_NAME`/`GIT_EMAIL` to commit as yourself.
 - `.env`, `*.env`, `.local/`, `data/` and `dist/` are git-ignored. Never commit secrets or tester phone numbers.
 
