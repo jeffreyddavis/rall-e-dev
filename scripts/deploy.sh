@@ -16,7 +16,7 @@ node --test --test-reporter=tap test/*.test.mjs > "$work/test.log" 2>&1 || { tai
 grep -E '^# (pass|fail)' "$work/test.log"
 echo "== Build =="; npx vite build >/dev/null && ls dist/index.html >/dev/null
 chmod -R u=rwX,go=rX package.json package-lock.json server dist
-tar -czf /tmp/rally-sms-release.tar.gz --owner=0 --group=0 package.json package-lock.json server dist
+tar -czf "${TMPDIR:-/tmp}/rally-sms-release.tar.gz" --owner=0 --group=0 package.json package-lock.json server dist
 echo "== Server config ($mode) =="
 envfile=$(mktemp); trap 'shred -u "$envfile" 2>/dev/null || rm -f "$envfile"' EXIT
 get() { grep -E "^$1=" "$repo/.env" | tail -1 | cut -d= -f2- | tr -d '\r'; }
@@ -28,6 +28,6 @@ op=$(get SMS_OPERATOR_KEY); [ ${#op} -ge 24 ] || { echo 'SMS_OPERATOR_KEY missin
   fi; } > "$envfile"
 [ "$mode" = live ] && { grep -q '^ANTHROPIC_API_KEY=.' "$envfile" && echo 'AI texting agent: ON' || echo 'AI texting agent: OFF (no ANTHROPIC_API_KEY)'; grep -q '^VAULT_KEY=.' "$envfile" && echo 'Vault: ON' || echo 'Vault: OFF (no VAULT_KEY)'; grep -q '^STRIPE_SECRET_KEY=sk_' "$envfile" && echo 'Card storage: ON (Stripe)' || echo 'Card storage: OFF (no Stripe keys)'; echo "Discovery sources: $(grep -oE '^(TICKETMASTER_API_KEY|SEATGEEK_CLIENT_ID|GOOGLE_MAPS_API_KEY|GRACENOTE_API_KEY|SERP_API_KEY|JAMBASE_KEY|USDA_LOCALFOOD_KEY)=.' "$envfile" | cut -d_ -f1 | tr '\n' ' ')"; }
 echo "== Upload + activate =="
-scp -q /tmp/rally-sms-release.tar.gz "$repo/scripts/deploy-sms.sh" rally:/home/ubuntu/
+scp -q "${TMPDIR:-/tmp}/rally-sms-release.tar.gz" "$repo/scripts/deploy-sms.sh" rally:/home/ubuntu/
 scp -q "$envfile" rally:/home/ubuntu/rally-demo.env
 ssh rally "ANNOUNCE_KEY=${ANNOUNCE_KEY:-agent-v1} bash /home/ubuntu/deploy-sms.sh $mode $([ "$mode" = live ] && echo announce) 2>&1" | grep -vE 'npm (WARN|notice)|^added|^$'
