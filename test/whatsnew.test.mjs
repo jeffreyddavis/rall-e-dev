@@ -63,3 +63,17 @@ test('a held note goes out once it is approved in /ops; the summary shows what w
   assert.match(out(A).at(-1), /Waiting one\./);
   store.close();
 });
+
+test('team-only dev updates go to the core testers, under their own heading, and members never see them', () => {
+  const { store, sms, out } = setup();
+  const C = '+13107770913'; sms.allowed.add(C); // an opted-in member, not a core tester
+  const w = new WhatsNew(sms, { releases: [{ id: 'm1', date: '2026-10-05', text: 'For everyone.' }, { id: 't1', date: '2026-10-05', team: true, text: 'Team tool.' }] });
+  w.joined = () => 0; // everyone joined before these notes
+  w.tick(AFTERNOON);
+  assert.match(out(A)[0], /^What's new on Rall-e:\n• For everyone\.\nFor the Rall-e team:\n• Team tool\.\n\(Text "no updates"/);
+  const member = store.db.prepare("SELECT body FROM sms_log WHERE phone=? AND kind='update'").all(C).map(r => r.body);
+  assert.equal(member.length, 1); assert.doesNotMatch(member[0], /Team tool|Rall-e team/);
+  assert.match(w.recent(5, A).join('\n'), /\(team\) Team tool/); assert.doesNotMatch(w.recent(5, C).join('\n'), /Team tool/);
+  assert.equal(w.summary().released.find(r => r.id === 't1').team, true);
+  store.close();
+});

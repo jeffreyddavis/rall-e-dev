@@ -97,6 +97,7 @@ export class Agent {
 
   get discovery() { return this.flow.sms.discovery; }
   // ---------- context ----------
+  isTeam(phone) { return Boolean(phone && this.flow.sms.testers?.has(phone)); }
   context(phone) {
     const threads = this.flow.threadsFor(phone), t = threads[0];
     // phone is included so channel features (like iMessage reactions) can be offered per person
@@ -116,6 +117,7 @@ export class Agent {
     const s = t.s, p = s.plan, person = t.person;
     const now = localNow(this.tzFor(phone)), prev = this.flow.db.prepare("SELECT created FROM sms_log WHERE phone=? AND direction='in' ORDER BY rowid DESC LIMIT 1 OFFSET 1").get(phone);
     const lines = [this.channel(phone), this.features.stateLine(t.phone),
+      this.isTeam(phone) ? 'Team: they are on the Rall-e team (core tester). When they send an event website, add it with add_source (ask for the city if missing); ideas, feedback and bugs go on the team list with add_idea. Both take effect right away, no review. Not share_tip for them.' : '',
       `Now: ${now.label} (${now.daypart}).${prev ? ` Their previous text before this one: ${ago(Date.now() - prev.created)}.` : ''}`,
       planTiming(s, now),
       `Role: ${role === 'host' ? `HOST (their name: ${s.name})` : `INVITED FRIEND (their name: ${person.name}; host: ${s.name})`}`,
@@ -197,6 +199,10 @@ export class Agent {
       T('my_bookings', 'Their recent reservations and purchases through Rall-e, with status.'));
     if (role !== 'new' && this.flow.sms.voice?.enabled) common.push(
       T('call_restaurant', 'Place one AI phone call to the verified restaurant to request a reservation. Only use when their latest text explicitly says to call or phone the restaurant, and party size, date and time are known. This starts a real call; a later text reports the result. Never supply a phone number.', { event_id: eventId, party_size: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: '24h HH:MM' }, notes: { type: 'string' } }, ['event_id', 'party_size', 'date', 'time']));
+    // The Rall-e team (the core testers on the allowlist) add event sources and team ideas straight from a text, no review.
+    if (this.isTeam(ctx.phone)) common.push(
+      T('add_source', 'TEAM ONLY: add a website that lists events (a venue, library, campus or city calendar) as an event source right away. It is read now and every 12 hours, and shows in /ops Sources.', { url: { type: 'string', description: 'Full link, https://…' }, city: { type: 'string', description: 'City the events are in, e.g. "Austin, TX"' }, name: { type: 'string', description: 'Short name, if they gave one' } }, ['url', 'city']),
+      T('add_idea', 'TEAM ONLY: put an idea on the team list in /ops Ideas (a feature idea, feedback or bug, a hidden gem, or an event website to look at later).', { kind: { type: 'string', enum: ['feature', 'feedback', 'gem', 'source'] }, title: { type: 'string', description: 'One-line summary' }, note: { type: 'string', description: 'Details, in their words' }, city: { type: 'string' }, url: { type: 'string' } }, ['kind', 'title']));
     if (role !== 'new' && this.flow.sms.whatsNew) common.push(
       T('whats_new', 'What changed in Rall-e recently (the release notes members get texted). Use when they ask what\'s new or about an update text.'),
       T('set_updates', 'Turn their "what\'s new" update texts off or on, when they ask (e.g. "stop sending me the update texts"). Plan texts are not affected.', { on: { type: 'boolean' } }, ['on']));
@@ -333,6 +339,14 @@ export class Agent {
       if (name === 'set_phone_type') { const service = await flow.sms.setPhoneType(phone, input.type); return service === 'SMS' ? 'Saved: Android. They will get regular texts (no action needed from them).' : 'Saved: iPhone. They were texted a one-tap link to switch to iMessage.'; }
       if (name === 'send_secure_link') { const status = flow.sms.vault.sendLink(phone, input.purpose === 'card' ? 'card' : 'details'); return status === 'blocked' ? 'Error: this number cannot receive texts right now.' : 'The private link was texted to them as a separate message. Tell them to tap it; it works for 15 minutes.'; }
       if (name === 'save_details') { const saved = flow.sms.vault.saveFromText(phone, input); return `Saved to their vault: ${saved.join(', ')}.`; }
+      if (name === 'add_source' || name === 'add_idea') {
+        if (!this.isTeam(phone)) return 'Error: only the Rall-e team can do that. For anyone else use share_tip.';
+        if (name === 'add_idea') { const i = flow.sms.ideas.add(phone, { ...input, source: 'team' }); return `Added to the team list in /ops Ideas (${i.kind}: "${i.title}"). Confirm in a few words.`; }
+        // Reading a big page can take a while; the source is saved before it is read, so do not hold the reply for it.
+        const added = await Promise.race([flow.sms.sources.add(input), new Promise(r => setTimeout(() => r(null), 20000))]);
+        const src = added || flow.sms.sources.list().find(x => x.url === new URL(String(input.url).trim()).href);
+        return src ? `Added "${src.name}" (${src.city}) as an event source${added ? `: ${src.found || 0} upcoming events found${src.error ? ` (reading it hit a problem: ${src.error})` : ''}` : '; still reading the page'}. It is in /ops Sources and refreshes every 12 hours. Tell them in a sentence.` : 'Error: the source was not saved.';
+      }
       if (name === 'share_tip') { const i = flow.sms.ideas.add(phone, input); return `Sent to the team (${i.kind === 'gem' ? 'hidden gem' : i.kind}: "${i.title}"). Thank them briefly. ${i.kind === 'gem' || i.kind === 'source' ? 'Once the team approves it, it shows up in recommendations, credited to them.' : 'The team reads every one.'} Don't promise a timeline.`; }
       if (name === 'set_favorites') { const v = await flow.sms.favorites.set(phone, input); return `Saved their top ${v.items.length} ${v.category} in ${v.city}: ${v.items.map(i => `#${i.rank} ${i.name}`).join(', ')}.\nShareable page (send it in one short line; friends can see it and it's a fun thing to post): ${v.url}\nFriends on Rall-e will see these when they look for ${v.category} near ${v.city.split(',')[0]}.`; }
       if (name === 'favorites') {
@@ -380,7 +394,7 @@ export class Agent {
         return `Recorded: ${flow.sms.bookings.describe(flow.sms.bookings.get(id))}.`;
       }
       if (name === 'my_bookings') { const rows = flow.sms.bookings.list(phone); return rows.length ? rows.map(b => flow.sms.bookings.describe(b)).join('\n') : 'No reservations or purchases yet.'; }
-      if (name === 'whats_new') { const r = flow.sms.whatsNew.recent(); return r.length ? `Recent updates (newest last):\n${r.join('\n')}\nTheir update texts are ${flow.sms.whatsNew.wants(phone) ? 'on' : 'off'}.` : 'No release notes yet.'; }
+      if (name === 'whats_new') { const r = flow.sms.whatsNew.recent(5, phone); return r.length ? `Recent updates (newest last):\n${r.join('\n')}\nTheir update texts are ${flow.sms.whatsNew.wants(phone) ? 'on' : 'off'}.` : 'No release notes yet.'; }
       if (name === 'set_updates') { flow.sms.whatsNew.set(phone, Boolean(input.on)); return input.on ? 'Update texts are on.' : 'Update texts are off; plan texts still come through. They can text "updates on" to turn them back on.'; }
       if (name === 'switch_plan') { const pick = ctx.threads[Number(input.number) - 1]; if (!pick) return 'Error: no such plan number.'; flow.link(phone, pick.digest, pick.s, pick.role, pick.participant); return `Switched to ${pick.s.plan.title}.`; }
       if (t.role === 'guest') {

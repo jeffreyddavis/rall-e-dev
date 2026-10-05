@@ -36,3 +36,21 @@ test('favorites: a top-5 list with a public page, visible to connected friends n
   assert.throws(() => sms.favorites.view(v.url.split('/').pop()), /isn’t available/);
   store.close();
 });
+
+test('the core team can add sources and ideas by text, straight in; other members can\'t', async () => {
+  const { Store } = await import('../server/store.mjs'), { Sms } = await import('../server/sms.mjs');
+  const TEAM = '+13107770931', MEMBER = '+13107770932', store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'a-test-presenter-password-over-24', PUBLIC_BASE_URL: 'https://rall-e.ai', SMS_SEND_SPACING_MS: '0', SMS_ALLOWED_RECIPIENTS: TEAM },
+    { messages: { create: async () => ({ sid: 'SM' + 'a'.repeat(32), status: 'queued' }) } }, async () => ({ ok: false, status: 404, text: async () => '', json: async () => ({}) }));
+  sms.allowed.add(MEMBER); // opted in later: a member, not the team
+  const agent = sms.flow.agent, names = phone => agent.tools({ role: 'host', threads: [], phone }).map(t => t.name);
+  assert.ok(names(TEAM).includes('add_source') && names(TEAM).includes('add_idea'));
+  assert.ok(!names(MEMBER).includes('add_source') && !names(MEMBER).includes('add_idea'));
+  assert.match(await agent.run(MEMBER, 'add_idea', { kind: 'feature', title: 'x' }, { t: null }, 'idea: x'), /only the Rall-e team/);
+  assert.match(await agent.run(TEAM, 'add_idea', { kind: 'feature', title: 'Dark mode for plan pages', note: 'Marc asked' }, { t: null }, 'idea: dark mode'), /Added to the team list/);
+  const idea = sms.ideas.list().find(i => i.title === 'Dark mode for plan pages');
+  assert.equal(idea.status, 'new'); assert.equal(store.db.prepare('SELECT source FROM ideas WHERE id=?').get(idea.id).source, 'team');
+  sms.sources.add = async ({ url, city }) => { store.db.prepare("INSERT INTO event_sources (id, url, name, city, lat, lng, created) VALUES ('s1', ?, 'Akron Library', ?, 41, -81, 1)").run(url, city); return { name: 'Akron Library', city, found: 12 }; };
+  assert.match(await agent.run(TEAM, 'add_source', { url: 'https://akronlibrary.example/events', city: 'Akron, OH' }, { t: null }, 'add source'), /Added "Akron Library" \(Akron, OH\) as an event source: 12 upcoming events found/);
+  store.close();
+});

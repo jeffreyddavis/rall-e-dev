@@ -2,7 +2,8 @@
 // Add one entry per user-facing change, newest last, in the same commit as the change. Rules:
 // - id: unique, never reused or edited after it ships (it's how we know who already got it).
 // - text: one short line, plain words, written for the person texting Rall-e (what they can do now).
-// - hold: true keeps it from going out (e.g. until Jeff approves the wording). Internal-only fixes don't get an entry.
+// - hold: true keeps it from going out (e.g. until Jeff approves the wording, in /ops → Release notes). Internal-only fixes don't get an entry.
+// - team: true makes it a dev update for the Rall-e team (the core testers) only: tools and changes members wouldn't care about.
 export const RELEASES = [
   { id: '2026-09-30-whats-new', date: '2026-09-30', text: 'You\'ll now get a short text like this whenever something new goes live on Rall-e.' },
   { id: '2026-09-30-own-plans', date: '2026-09-30', text: 'Invited to a friend\'s plan? You can now start your own separate plan from the same chat. Just ask me to plan it.' },
@@ -17,5 +18,8 @@ export const RELEASES = [
   { id: '2026-10-02-call-menus', date: '2026-10-02', text: 'When I call a restaurant that answers with a phone menu ("press 1 for reservations"), I can now press the button to reach a person.' },
   { id: '2026-10-05-checked-picks', date: '2026-10-05', text: 'I now check that a place is open when you\'d go (and not closed for the season) before I suggest it. Tell me the time, like "dinner at 7", and I\'ll only pick places open then.' },
   { id: '2026-10-05-offer-call', date: '2026-10-05', text: 'Want a table? Along with the booking link, I\'ll offer to call the restaurant for you, so you don\'t have to.' },
-  { id: '2026-10-05-plan-page', date: '2026-10-05', text: 'Planning with someone else? I\'ll send the Rall-e page right away so you can both see the options, RSVPs and picks in one place.' }
+  { id: '2026-10-05-plan-page', date: '2026-10-05', text: 'Planning with someone else? I\'ll send the Rall-e page right away so you can both see the options, RSVPs and picks in one place.' },
+  { id: '2026-10-05-team-updates', date: '2026-10-05', team: true, hold: true, text: 'You now get team-only updates like this one, about tools for the three of us. Regular members never see them.' },
+  { id: '2026-10-05-team-sources', date: '2026-10-05', team: true, hold: true, text: 'Text me an event website and its city ("add this source for Austin: https://...") and I\'ll add it as a source right away, no review. It shows up in /ops → Sources.' },
+  { id: '2026-10-05-team-ideas', date: '2026-10-05', team: true, hold: true, text: 'Text me an idea, feedback or a bug ("idea: ...") and I\'ll put it straight on the team list in /ops → Ideas.' }
 ];

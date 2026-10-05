@@ -17,13 +17,13 @@ export default function ReleasesTab({ call, ago }) {
         <h3 className="rel-head">Waiting for approval</h3>
         {!data.held.length ? <p className="ins-empty">Nothing waiting. New notes show up here when they’re added with a hold.</p> :
           <ul className="rel-list">{data.held.map(r => <li key={r.id} className="held">
-            <p>{r.text}</p><small>{r.date}</small>
-            <button className="button primary" disabled={!!busy} onClick={() => confirm(`Text this to every member who gets updates?\n\n“${r.text}”`) && run(r.id, () => call('releases/approve', { id: r.id }))}><Check size={15}/>Approve and send</button>
+            <p>{r.team && <em className="rel-team">Team only</em>}{r.text}</p><small>{r.date}</small>
+            <button className="button primary" disabled={!!busy} onClick={() => confirm(`Text this to ${r.team ? 'the Rall-e team' : 'every member who gets updates'}?\n\n“${r.text}”`) && run(r.id, () => call('releases/approve', { id: r.id }))}><Check size={15}/>Approve and send</button>
           </li>)}</ul>}
         <h3 className="rel-head">Sent</h3>
       </>}
       {!data.released.length ? <p className="ins-empty">No release notes yet.</p> :
-        <ul className="rel-list">{data.released.map(r => <li key={r.id}><p>{r.text}</p><small>{r.date} · live {ago(r.at)} · texted to {r.sent} {r.sent === 1 ? 'member' : 'members'}</small></li>)}</ul>}
+        <ul className="rel-list">{data.released.map(r => <li key={r.id}><p>{r.team && <em className="rel-team">Team only</em>}{r.text}</p><small>{r.date} · live {ago(r.at)} · texted to {r.sent} {r.sent === 1 ? 'member' : 'members'}</small></li>)}</ul>}
     </>}
   </section>;
 }

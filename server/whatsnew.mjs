@@ -2,6 +2,7 @@
 // short text about it. Everyone is opted in by default; "no updates" turns it off, "updates on" turns it back on.
 // Kind to people: only 9 AM to 8 PM their time, never in the middle of a conversation, at most one update text every
 // few hours (several releases are combined), and people who joined after a release never get it.
+// Notes marked `team: true` are dev updates for the Rall-e team (the core testers) only; members never see them.
 import { RELEASES } from './releases.mjs';
 import { localNow } from './timeline.mjs';
 import { stats } from './stats.mjs';
@@ -47,13 +48,17 @@ export class WhatsNew {
     const a = this.db.prepare('SELECT at FROM sms_optins WHERE phone=?').get(phone)?.at, b = this.db.prepare('SELECT MIN(created) AS m FROM sms_log WHERE phone=?').get(phone)?.m;
     return Math.min(a ?? Infinity, b ?? Infinity) === Infinity ? Date.now() : Math.min(a ?? Infinity, b ?? Infinity);
   }
+  forTeam(phone) { return Boolean(this.sms.testers?.has(phone)); }
   pending(phone, live = this.live()) {
-    const joined = this.joined(phone);
-    return live.filter(r => r.at >= joined && !this.db.prepare('SELECT 1 FROM update_sent WHERE phone=? AND release=?').get(phone, r.id));
+    const joined = this.joined(phone), team = this.forTeam(phone);
+    return live.filter(r => (!r.team || team) && r.at >= joined &&!this.db.prepare('SELECT 1 FROM update_sent WHERE phone=? AND release=?').get(phone, r.id));
   }
   message(items) {
-    const shown = items.slice(-MAX_ITEMS), more = items.length - shown.length;
-    return [`What's new on Rall-e:`, ...shown.map(r => `• ${r.text}`), ...(more ? [`• …plus ${more} more improvements`] : []), '(Text "no updates" to turn these off.)'].join('\n');
+    const part = (title, list) => {
+      const shown = list.slice(-MAX_ITEMS), more = list.length - shown.length;
+      return list.length ? [title, ...shown.map(r => `• ${r.text}`), ...(more ? [`• …plus ${more} more improvements`] : [])] : [];
+    };
+    return [...part(`What's new on Rall-e:`, items.filter(r => !r.team)), ...part('For the Rall-e team:', items.filter(r => r.team)), '(Text "no updates" to turn these off.)'].join('\n');
   }
   // Who gets them: every member (testers + opted-in people), not STOPped, not opted out, not a lab number.
   audience() { return [...this.sms.allowed].filter(p => !LAB.test(p) && !this.sms.isStopped(p) && this.wants(p)); }
@@ -78,11 +83,11 @@ export class WhatsNew {
     return sent;
   }
   // For the agent ("what's new?") and ops.
-  recent(n = 5) { return this.live().slice(-n).map(r => `${r.date}: ${r.text}`); }
+  recent(n = 5, phone = '') { const team = this.forTeam(phone); return this.live().filter(r => !r.team || team).slice(-n).map(r => `${r.date}: ${r.team ? '(team) ' : ''}${r.text}`); }
   // For /ops Release notes, newest first: what went out (and to how many) and what is waiting for approval.
   summary() {
-    const released = this.live().map(r => ({ id: r.id, date: r.date, text: r.text, at: r.at, sent: this.db.prepare('SELECT COUNT(*) AS n FROM update_sent WHERE release=?').get(r.id).n })).reverse();
-    const held = this.releases.filter(r => r.hold && !this.approved(r.id)).map(r => ({ id: r.id, date: r.date, text: r.text })).reverse();
+    const released = this.live().map(r => ({ id: r.id, date: r.date, text: r.text, team: Boolean(r.team), at: r.at, sent: this.db.prepare('SELECT COUNT(*) AS n FROM update_sent WHERE release=?').get(r.id).n })).reverse();
+    const held = this.releases.filter(r => r.hold && !this.approved(r.id)).map(r => ({ id: r.id, date: r.date, text: r.text, team: Boolean(r.team) })).reverse();
     return { released, held, members: this.audience().length };
   }
 }
