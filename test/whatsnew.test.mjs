@@ -90,3 +90,12 @@ test('team-only updates go out right away, even at night or within the cooldown'
   assert.deepEqual(w.tick(NIGHT + 60000), []); // regular notes still wait for daytime
   store.close();
 });
+
+test('the "no updates" line goes on someone\'s first update text and every 5th after it', () => {
+  const { store, sms, out } = setup();
+  const w = new WhatsNew(sms, { releases: [], env: { UPDATES_MIN_GAP_HOURS: '0' } });
+  w.joined = () => 0;
+  for (let i = 1; i <= 7; i++) { w.releases.push({ id: `r${i}`, date: '2026-10-05', text: `Thing ${i}.` }); w.tick(AFTERNOON + i * 60000); }
+  assert.deepEqual(out(A).map(b => /no updates/.test(b)), [true, false, false, false, false, true, false]);
+  store.close();
+});

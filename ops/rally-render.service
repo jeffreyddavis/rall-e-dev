@@ -1,0 +1,29 @@
+[Unit]
+Description=Rall-e page renderer (headless Chromium for event sources)
+After=network.target
+
+[Service]
+Type=simple
+User=rally-demo
+Group=rally-demo
+WorkingDirectory=/opt/rally-demo/current
+Environment=NODE_ENV=production
+Environment=RENDER_PORT=3108
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/rally-demo/browsers
+Environment=HOME=/tmp
+ExecStart=/opt/rally-demo/runtime/bin/node server/renderer.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Chromium gets its own budget so it can never starve the texting app (rally-demo, 384M) or the shared host.
+MemoryHigh=550M
+MemoryMax=700M
+CPUQuota=80%
+TasksMax=256
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

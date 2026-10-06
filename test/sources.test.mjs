@@ -146,3 +146,17 @@ test('a source that reads 0 or 1 events gets a debugging run (twice at most) tha
   assert.match(sms.sources.list()[0].debug_note, /real browser/);
   store.close();
 });
+
+test('a "browser" rule reads the page as rendered; with no renderer installed it fails cleanly', async () => {
+  const a = soon(5), store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai' }, { messages: { create: async () => ({}) } },
+    async url => url.includes('robots.txt') ? { ok: false, text: async () => '' } : Promise.reject(new Error('connect ECONNREFUSED 127.0.0.1:3108')));
+  const src = { id: null, url: 'https://venue.example/', lng: -118, city: 'Los Angeles, CA' }, rule = { type: 'browser', url: 'https://venue.example/' };
+  await assert.rejects(sms.sources.ruleEvents(rule, src), /page browser isn't running/);
+  assert.equal(await sms.sources.renderAvailable(), false);
+  sms.sources.render = async url => ({ status: 200, url, responses: [], html: `<script type="application/ld+json">{"@type":"MusicEvent","name":"Late Show","startDate":"${a.d}T21:00:00-07:00"}</script>` });
+  assert.deepEqual((await sms.sources.ruleEvents(rule, src)).map(e => [e.title, e.date, e.time]), [['Late Show', a.d, '21:00']]);
+  sms.sources.render = async () => ({ status: 403, url: 'https://venue.example/', responses: [], html: '' });
+  await assert.rejects(sms.sources.ruleEvents(rule, src), /answered 403/);
+  store.close();
+});

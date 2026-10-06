@@ -25,6 +25,8 @@ shred -u /home/ubuntu/rally-demo.env
 
 sudo ln -sfn "$release" "$base/current"
 sudo systemctl restart rally-demo
+# The page renderer (headless Chromium, scripts/setup-renderer.sh) runs from the same release when it's installed.
+if systemctl is-enabled --quiet rally-render 2>/dev/null; then sudo systemctl restart rally-render || true; fi
 healthy=0
 for i in $(seq 1 15); do
   if curl --fail --silent http://127.0.0.1:3107/health >/dev/null; then healthy=1; break; fi

@@ -53,12 +53,14 @@ export class WhatsNew {
     const joined = this.joined(phone), team = this.forTeam(phone);
     return live.filter(r => (!r.team || team) && r.at >= joined &&!this.db.prepare('SELECT 1 FROM update_sent WHERE phone=? AND release=?').get(phone, r.id));
   }
-  message(items) {
+  // How to turn these off: on someone's first update text, then on every 5th after it (1st, 6th, 11th…).
+  footerDue(phone) { return this.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE phone=? AND direction='out' AND kind='update'").get(phone).n % 5 === 0; }
+  message(items, footer = true) {
     const part = (title, list) => {
       const shown = list.slice(-MAX_ITEMS), more = list.length - shown.length;
       return list.length ? [title, ...shown.map(r => `• ${r.text}`), ...(more ? [`• …plus ${more} more improvements`] : [])] : [];
     };
-    return [...part(`What's new on Rall-e:`, items.filter(r => !r.team)), ...part('For the Rall-e team:', items.filter(r => r.team)), '(Text "no updates" to turn these off.)'].join('\n');
+    return [...part(`What's new on Rall-e:`, items.filter(r => !r.team)), ...part('For the Rall-e team:', items.filter(r => r.team)), ...(footer ? ['(Text "no updates" to turn these off.)'] : [])].join('\n');
   }
   // Who gets them: every member (testers + opted-in people), not STOPped, not opted out, not a lab number.
   audience() { return [...this.sms.allowed].filter(p => !LAB.test(p) && !this.sms.isStopped(p) && this.wants(p)); }
@@ -76,7 +78,7 @@ export class WhatsNew {
     for (const phone of this.audience()) {
       // Team-only dev updates skip the timing rules (daytime, mid-conversation, the gap): they're for us, so they go now.
       const items = this.pending(phone, live); if (!items.length || (!items.some(r => r.team) && !this.ready(phone, now))) continue;
-      const status = this.sms.deliver(phone, this.message(items), { kind: 'update' });
+      const status = this.sms.deliver(phone, this.message(items, this.footerDue(phone)), { kind: 'update' });
       if (status === 'blocked') continue;
       for (const r of items) this.db.prepare('INSERT OR IGNORE INTO update_sent VALUES (?, ?, ?)').run(phone, r.id, now);
       stats.bump('updates_sent', 1, phone); sent.push(phone);

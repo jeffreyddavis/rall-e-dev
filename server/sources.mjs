@@ -8,6 +8,8 @@ import { fail } from './store.mjs';
 import { registerEvent } from './catalog.mjs';
 import { meter } from './usage.mjs';
 import { stats } from './stats.mjs';
+import { isPublicUrl } from './publicurl.mjs';
+export { isPublicUrl };
 
 const DAY = 86400000, UA = 'Rall-e event finder (+https://rall-e.ai)';
 const short = v => createHash('sha256').update(String(v)).digest('base64url').slice(0, 10);
@@ -70,23 +72,14 @@ export function parseJsonLd(html) {
   for (const m of String(html).matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) { try { visit(JSON.parse(m[1].trim())); } catch {} }
   return out;
 }
-// Only public web addresses: never this server, the cloud metadata service or a private network (source links and
-// the links a debugging run follows come from outside).
-export function isPublicUrl(value) {
-  let u; try { u = new URL(String(value)); } catch { return false; }
-  const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (!/^https?:$/.test(u.protocol) || !h.includes('.') && !h.includes(':')) return false;
-  if (/^(localhost|0\.|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(h)) return false;
-  if (/^(::1?|f[cd][0-9a-f]{2}:|fe80:)/.test(h) || /\.(local|internal|localhost)$/.test(h)) return false;
-  return true;
-}
 // ---------- per-source rules ----------
 // A rule says where a source's events really are when its page shows none (they load a second later from an API, a
 // feed or a widget). The debugging agent (server/sourcedebug.mjs) finds and tests them; refreshes use them first.
 //   {type:'ics', url} · {type:'jsonld', url} · {type:'ai', url} (AI reads that page) ·
+//   {type:'browser', url} (opened in headless Chromium first, server/renderer.mjs; then its events or AI reading) ·
 //   {type:'json', url, items:'path.to.list', fields:{title, start, time?, venue?, address?, url?, image?, description?, price?}}
 // Paths are dotted ("venue.name", "images.0.url"). In a rule's url, {today} and {end} are today and today + 90 days.
-export const RULE_TYPES = { ics: 'calendar feed', jsonld: 'event page', ai: 'page (read by AI)', json: 'JSON API' };
+export const RULE_TYPES = { ics: 'calendar feed', jsonld: 'event page', ai: 'page (read by AI)', json: 'JSON API', browser: 'page in a browser' };
 const at = (obj, path) => !path ? undefined : String(path).split('.').filter(Boolean).reduce((v, k) => v == null ? v : v[k], obj);
 export function whenOf(value, lng = -100) {
   if (value == null || value === '') return null;
@@ -194,7 +187,10 @@ export class Sources {
     };
     try {
       let got = null;
-      if (src.rule) got = await this.ruleEvents(JSON.parse(src.rule), src).then(raw => raw.length ? { raw, kind: `${RULE_TYPES[JSON.parse(src.rule).type]} (saved rule)` } : null).catch(() => null);
+      if (src.rule) {
+        const rule = JSON.parse(src.rule), kind = `${RULE_TYPES[rule.type]} (saved rule)`;
+        got = await this.ruleEvents(rule, src, { cached: true }).then(raw => raw.length ? { raw, kind } : null).catch(e => e.unchanged ? { done: [src.found, kind] } : null);
+      }
       got ||= await this.pageEvents(src);
       if (got.done) return done(...got.done);
       const { raw, kind } = got;
@@ -232,20 +228,49 @@ export class Sources {
     return { raw, kind };
   }
   // Events through a saved rule (see RULE_TYPES above). Also what the debugging agent tests a rule with.
-  async ruleEvents(rule, src) {
+  // With `cached`, AI reading is skipped when the page text hasn't changed (the events we have stay).
+  async ruleEvents(rule, src, { cached = false } = {}) {
     const url = ruleUrl(rule.url, src.url);
     if (!RULE_TYPES[rule.type]) throw new Error(`Unknown rule type "${rule.type}".`);
     if (!isPublicUrl(url)) throw new Error('A rule needs a public web link.');
     if (!(await this.allowed(new URL(url)))) throw new Error('That site asks bots not to read this link (robots.txt).');
+    const readText = async html => {
+      const found = parseJsonLd(html); if (found.length) return found;
+      const text = pageText(html), h = short(text);
+      if (cached && src.id && src.text_hash === h && src.found > 1) throw Object.assign(new Error('unchanged'), { unchanged: true });
+      const events = await this.extract(text, { ...src, url });
+      if (src.id) this.db.prepare('UPDATE event_sources SET text_hash=? WHERE id=?').run(h, src.id);
+      return events;
+    };
+    if (rule.type === 'browser') {
+      const page = await this.render(url);
+      if (!page) throw new Error('The page browser isn\'t running on this server.');
+      if (page.status >= 400) throw new Error(`The page answered ${page.status}.`);
+      return readText(page.html);
+    }
     const accept = { json: 'application/json, */*;q=0.5', ics: 'text/calendar, */*;q=0.5' }[rule.type] || 'text/html, */*;q=0.5';
     const r = await this.fetch(url, { headers: { 'User-Agent': UA, Accept: accept }, signal: AbortSignal.timeout(20000), redirect: 'follow' });
     if (!r.ok) throw new Error(`The link answered ${r.status}.`);
     const body = (await r.text()).slice(0, 5_000_000);
     if (rule.type === 'ics') return parseIcs(body, src.lng ?? -100);
     if (rule.type === 'jsonld') return parseJsonLd(body);
-    if (rule.type === 'ai') return this.extract(pageText(body), { ...src, url });
+    if (rule.type === 'ai') return readText(body);
     let data; try { data = JSON.parse(body.replace(/^[^[{]*/, '')); } catch { throw new Error('That link doesn\'t return JSON.'); }
     return jsonEvents(data, rule, url, src.lng ?? -100);
+  }
+  // The page as a browser shows it after its JavaScript runs (server/renderer.mjs, its own service). null when that
+  // service isn't installed or doesn't answer, so everything else works without it.
+  async render(url) {
+    const r = await this.fetch(`${this.env.RENDER_URL || 'http://127.0.0.1:3108'}/render`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }), signal: AbortSignal.timeout(60000) }).catch(() => null);
+    if (!r) return null;
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(`Page browser: ${d?.error || r.status}`);
+    return d;
+  }
+  async renderAvailable() {
+    const r = await this.fetch(`${this.env.RENDER_URL || 'http://127.0.0.1:3108'}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+    return Boolean(r?.ok);
   }
   saveRule(id, rule, note) { this.db.prepare('UPDATE event_sources SET rule=?, debug_note=? WHERE id=?').run(JSON.stringify(rule), String(note || '').slice(0, 300), id); }
   // Queue one debugging run (server/sourcedebug.mjs), at most twice per source unless someone asks again in /ops.

@@ -93,6 +93,7 @@ Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
   - Settings: `/etc/rally-demo.env`.
   - DB: `/var/lib/rally-demo/rally.sqlite`.
   - systemd service: `rally-demo`, on port 3107.
+  - Page renderer: `rally-render` on 127.0.0.1:3108 (headless Chromium in `/opt/rally-demo/browsers`, 700 MB cap, `ops/rally-render.service`), installed once with `bash scripts/setup-renderer.sh`; deploys restart it. Optional: without it, `browser` source rules just fail.
   - Apache in front: a shared host that also serves an unrelated MacroFit app, so **don't touch other vhosts**.
 - **One-off scripts against live data:** `bash scripts/server-node.sh my-script.mjs [--stop]`.
   - **Back up the DB before any write** (`sudo cp rally.sqlite rally.pre-<what>.sqlite`).
