@@ -94,6 +94,7 @@ export class SourceDebugger {
     if (!src || !agent?.key) return { note: 'The AI isn\'t set up here.' };
     stats.bump('source_debug_runs');
     const browser = await this.sources.renderAvailable();
+    if (browser) this.sources.db.prepare('UPDATE event_sources SET debug_browser=1 WHERE id=?').run(id); // this run could use the page browser
     const rule = { type: 'object', description: 'The rule', properties: { type: { type: 'string', enum: Object.keys(RULE_TYPES) }, url: { type: 'string' }, items: { type: 'string' }, fields: { type: 'object' } }, required: ['type', 'url'] };
     const tools = [
       { name: 'inspect', description: 'GET a public URL and summarize it for debugging (HTML: scripts, iframes, feed/API links, embedded JSON, text; JSON: shape + start; .ics: events; JS: API strings).', input_schema: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } },

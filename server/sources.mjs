@@ -121,7 +121,7 @@ export class Sources {
         created INTEGER NOT NULL, fetched INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT, active INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS curated_events (id TEXT PRIMARY KEY, source TEXT NOT NULL, day TEXT NOT NULL, lat REAL, lng REAL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS curated_events_day ON curated_events(day);`);
-    for (const col of ['text_hash TEXT', 'rule TEXT', 'debug_tries INTEGER NOT NULL DEFAULT 0', 'debug_note TEXT', 'debug_at INTEGER']) try { this.db.exec(`ALTER TABLE event_sources ADD COLUMN ${col}`); } catch {}
+    for (const col of ['text_hash TEXT', 'rule TEXT', 'debug_tries INTEGER NOT NULL DEFAULT 0', 'debug_note TEXT', 'debug_at INTEGER', 'debug_browser INTEGER NOT NULL DEFAULT 0']) try { this.db.exec(`ALTER TABLE event_sources ADD COLUMN ${col}`); } catch {}
     this.db.exec('CREATE TABLE IF NOT EXISTS source_debug_runs (source TEXT NOT NULL, at INTEGER NOT NULL)');
     this.debugQueue = new Set(); this.debugChain = Promise.resolve(); this.debugDaily = Number(env.SOURCE_DEBUG_DAILY || 40);
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
@@ -397,12 +397,19 @@ export class Sources {
     for (let i = 0; mixed.length < Math.min(12, list.length); i++) for (const b of byDay) if (b[i] && mixed.length < 12) mixed.push(b[i]);
     return mixed;
   }
+  async sweepDebug() {
+    const browser = await this.renderAvailable();
+    for (const s of this.db.prepare("SELECT id, debug_tries, debug_browser FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND found<=1 AND (error IS NULL OR error NOT LIKE '%robots.txt%')").all()) {
+      if (s.debug_tries < 2) this.debugLater(s.id); else if (browser && !s.debug_browser) this.debugLater(s.id, { force: true });
+    }
+  }
   schedule() {
     if (this.timer) return;
     const tick = async () => { for (const s of this.db.prepare("SELECT id FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND (fetched IS NULL OR fetched < ?)").all(Date.now() - 12 * 3600000)) await this.refresh(s.id).catch(() => {}); };
     this.timer = setInterval(() => tick().catch(() => {}), 3600000); this.timer.unref?.();
     setTimeout(() => tick().catch(() => {}), 60000).unref?.();
-    // Sources already showing 0 or 1 events get their debugging run too (one at a time, within the daily cap).
-    setTimeout(() => { for (const s of this.db.prepare("SELECT id FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND found<=1 AND debug_tries<2 AND (error IS NULL OR error NOT LIKE '%robots.txt%')").all()) this.debugLater(s.id); }, 90000).unref?.();
+    // Sources already showing 0 or 1 events get their debugging run too (one at a time, within the daily cap). Once the
+    // page browser is installed, ones whose runs never had it get one more run with it, even past the usual 2 tries.
+    setTimeout(() => this.sweepDebug().catch(() => {}), 90000).unref?.();
   }
 }

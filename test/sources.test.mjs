@@ -160,3 +160,18 @@ test('a "browser" rule reads the page as rendered; with no renderer installed it
   await assert.rejects(sms.sources.ruleEvents(rule, src), /answered 403/);
   store.close();
 });
+
+test('once the page browser is installed, sources whose debugging runs never had it get one more run', async () => {
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai' }, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
+  const add = (id, found, tries, browser, error = null) => store.db.prepare('INSERT INTO event_sources (id, url, name, city, created, found, debug_tries, debug_browser, error) VALUES (?,?,?,?,?,?,?,?,?)').run(id, `https://${id}.example/`, id, 'LA', 1, found, tries, browser, error);
+  add('needsbrowser', 0, 2, 0); add('hadbrowser', 0, 2, 1); add('fine', 12, 2, 0); add('blocked', 0, 2, 0, 'This site asks bots not to read that page (robots.txt).'); add('fresh', 1, 0, 0);
+  const queued = []; sms.sources.debugLater = (id, opts) => queued.push([id, Boolean(opts?.force)]);
+  sms.sources.renderAvailable = async () => false;
+  await sms.sources.sweepDebug();
+  assert.deepEqual(queued, [['fresh', false]]); // without a browser: only the usual tries
+  queued.length = 0; sms.sources.renderAvailable = async () => true;
+  await sms.sources.sweepDebug();
+  assert.deepEqual(queued.sort(), [['fresh', false], ['needsbrowser', true]]);
+  store.close();
+});
