@@ -19,6 +19,8 @@ export const stats = {
       CREATE TABLE IF NOT EXISTS gaps (category TEXT PRIMARY KEY, n INTEGER NOT NULL, example TEXT NOT NULL, source TEXT NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL);`);
     // Gap follow-up: status (open / in_progress / fixed / by_design) and a note on what was done.
     for (const col of ["status TEXT NOT NULL DEFAULT 'open'", 'note TEXT', 'status_at INTEGER']) { try { db.exec(`ALTER TABLE gaps ADD COLUMN ${col}`); } catch {} }
+    // Who already asked for a gap: a salted hash per category (can't be traced to a number or linked across gaps).
+    db.exec('CREATE TABLE IF NOT EXISTS gap_people (category TEXT NOT NULL, who TEXT NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY (category, who))');
     let row = db.prepare("SELECT value FROM stat_meta WHERE key='salt'").get();
     if (!row) { row = { value: randomBytes(24).toString('hex') }; db.prepare("INSERT INTO stat_meta VALUES ('salt', ?)").run(row.value); }
     this.salt = row.value;
@@ -50,6 +52,14 @@ export const stats = {
   gap(category, example, source = 'agent', phone = '') {
     if (!this.db || fictional(phone)) return;
     const cat = String(category || 'other').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'other', ex = scrub(example) || '(no example)';
+    // One ask per person per conversation: the same person and gap within 24 hours counts once (the AI tends to log it
+    // again on every reply). People are counted too, so "32 times" reads as "32 asks from 4 people".
+    if (phone) {
+      const who = createHmac('sha256', this.salt).update(`${cat}|${phone}`).digest('hex').slice(0, 20), now = Date.now();
+      const seen = this.db.prepare('SELECT last_at FROM gap_people WHERE category=? AND who=?').get(cat, who);
+      this.db.prepare('INSERT INTO gap_people VALUES (?,?,?) ON CONFLICT(category, who) DO UPDATE SET last_at=excluded.last_at').run(cat, who, now);
+      if (seen && now - seen.last_at < 86400000) { this.db.prepare('UPDATE gaps SET example=?, last_at=? WHERE category=?').run(ex, now, cat); return; }
+    }
     this.db.prepare('INSERT INTO gaps (category, n, example, source, first_at, last_at) VALUES (?,1,?,?,?,?) ON CONFLICT(category) DO UPDATE SET n=n+1, example=excluded.example, source=excluded.source, last_at=excluded.last_at').run(cat, ex, source, Date.now(), Date.now());
   },
   setGap(category, { status, note }) {
@@ -79,7 +89,7 @@ export const stats = {
     const active7 = db.prepare('SELECT COUNT(DISTINCT who) n FROM stat_actives WHERE day>=?').get(since(6)).n;
     const since0 = db.prepare('SELECT MIN(day) d FROM stat_counts').get().d;
     return { since: since0, totals, week, series, people: { all: people, returning, active7 },
-      gaps: db.prepare('SELECT category, n, example, source, first_at, last_at, status, note, status_at FROM gaps ORDER BY n DESC, last_at DESC LIMIT 500').all()
+      gaps: db.prepare('SELECT g.category, g.n, g.example, g.source, g.first_at, g.last_at, g.status, g.note, g.status_at, (SELECT COUNT(*) FROM gap_people p WHERE p.category=g.category) AS people FROM gaps g ORDER BY g.n DESC, g.last_at DESC LIMIT 500').all()
         .map(g => ({ ...g, again: g.status === 'fixed' && g.status_at && g.last_at > g.status_at })) }; // "seen again since it was marked fixed"
   }
 };

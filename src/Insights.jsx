@@ -54,10 +54,10 @@ function Gaps({ gaps, canEdit, onSave, ago }) {
   async function save(category) { setSaving(true); try { await onSave(category, draft); setEditing(null); } finally { setSaving(false); } }
   return <article className="ins-group ins-gaps"><h3>Couldn’t do / failed <small>{gaps.length} types · {open} still open · one anonymized example each</small></h3>
     {gaps.length ? <>
-      <div className="ins-table-wrap"><table><thead><tr><th>Type</th><th>Times</th><th>Example ask</th><th>Status</th><th>Notes</th><th>Last</th></tr></thead><tbody>
+      <div className="ins-table-wrap"><table><thead><tr><th>Type</th><th title="Each person counts once per conversation (24 hours). People counted since Oct 6.">Asks</th><th>Example ask</th><th>Status</th><th>Notes</th><th>Last</th></tr></thead><tbody>
         {shown.map(g => <tr key={g.category}>
           <td><b>{g.category.replace(/_/g, ' ')}</b>{g.source !== 'agent' && <i>{g.source === 'auto' ? 'auto' : 'reported'}</i>}</td>
-          <td>{g.n}</td><td>{g.example}</td>
+          <td>{g.n}{g.people ? <small className="ins-people">{g.people} {g.people === 1 ? 'person' : 'people'}</small> : null}</td><td>{g.example}</td>
           {editing === g.category ? <><td><select value={draft.status} onChange={e => setDraft({ ...draft, status: e.target.value })}>{Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
             <td className="ins-note-edit"><textarea rows={2} maxLength={300} value={draft.note} onChange={e => setDraft({ ...draft, note: e.target.value })}/><span><button className="button primary" disabled={saving} onClick={() => save(g.category)}>Save</button><button className="ops-link" onClick={() => setEditing(null)}>Cancel</button></span></td></>
             : <><td><span className={`ins-status ${g.status}`}>{STATUS[g.status] || 'Open'}</span>{g.again && <em className="ins-again" title="Seen again after it was marked fixed">seen again</em>}</td>
