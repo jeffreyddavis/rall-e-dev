@@ -175,3 +175,18 @@ test('once the page browser is installed, sources whose debugging runs never had
   assert.deepEqual(queued.sort(), [['fresh', false], ['needsbrowser', true]]);
   store.close();
 });
+
+test('sites that forbid bots (Bookeo, DICE, Resident Advisor) are never read, added, rendered or used in a rule', async () => {
+  const { botsForbidden } = await import('../server/publicurl.mjs');
+  for (const u of ['https://bookeo.com/escaperoomla', 'https://www-1568p.bookeo.com/bookeo/b_x_start.html', 'https://dice.fm/venue/zebulon', 'https://partners-endpoint.dice.fm/api/v2/events', 'https://ra.co/events/us/losangeles']) assert.equal(botsForbidden(u), true, u);
+  for (const u of ['https://www.escaperoomla.com/book-now', 'https://www.zebulon.la/', 'https://notbookeo.com/']) assert.equal(botsForbidden(u), false, u);
+  const store = new Store(':memory:'), seen = [];
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', GOOGLE_MAPS_API_KEY: 'gk' }, { messages: { create: async () => ({}) } }, async url => { seen.push(url); return { ok: false, status: 404, text: async () => '' }; });
+  await assert.rejects(sms.sources.add({ url: 'https://bookeo.com/escaperoomla', city: 'Los Angeles, CA' }), /forbids automated access/);
+  await assert.rejects(sms.sources.ruleEvents({ type: 'browser', url: 'https://bookeo.com/escaperoomla' }, { url: 'https://www.escaperoomla.com/', city: 'LA' }), /forbids automated access/);
+  const { SourceDebugger } = await import('../server/sourcedebug.mjs'), dbg = new SourceDebugger(sms.sources);
+  assert.match(await dbg.inspect('https://www-1568p.bookeo.com/bookeo/b_x_start.html', { fetches: 0 }), /forbids automated access/);
+  assert.match(await dbg.find('https://widgets.dice.fm/x.js', 'fetch(', { fetches: 0 }), /forbids bots/);
+  assert.ok(!seen.some(u => /bookeo|dice\.fm/.test(u)), 'nothing was fetched from those sites');
+  store.close();
+});

@@ -8,3 +8,10 @@ export function isPublicUrl(value) {
   if (/^(::1?|f[cd][0-9a-f]{2}:|fe80:)/.test(h) || /\.(local|internal|localhost)$/.test(h)) return false;
   return true;
 }
+// Sites whose terms forbid automated access and that enforce it (Bookeo blocked our IP on sight, 10-05). Never fetched,
+// rendered or loaded by a page we render; venues using them are recommended as places, not read for events.
+export const NO_BOTS = ['bookeo.com', 'dice.fm', 'ra.co', 'residentadvisor.net'];
+export function botsForbidden(value) {
+  let h; try { h = new URL(String(value)).hostname.toLowerCase(); } catch { return false; }
+  return NO_BOTS.some(d => h === d || h.endsWith(`.${d}`));
+}

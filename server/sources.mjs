@@ -8,8 +8,8 @@ import { fail } from './store.mjs';
 import { registerEvent } from './catalog.mjs';
 import { meter } from './usage.mjs';
 import { stats } from './stats.mjs';
-import { isPublicUrl } from './publicurl.mjs';
-export { isPublicUrl };
+import { isPublicUrl, botsForbidden } from './publicurl.mjs';
+export { isPublicUrl, botsForbidden };
 
 const DAY = 86400000, UA = 'Rall-e event finder (+https://rall-e.ai)';
 const short = v => createHash('sha256').update(String(v)).digest('base64url').slice(0, 10);
@@ -134,6 +134,7 @@ export class Sources {
   async add({ url, city, name = '' }) {
     let u; try { u = new URL(String(url || '').trim()); } catch { fail(400, 'Paste a full link (https://…).'); }
     if (!isPublicUrl(u.href)) fail(400, 'Paste a public web link.');
+    if (botsForbidden(u.href)) fail(400, 'That site forbids automated access, so it can\x27t be a source. Add the venue\x27s own events page instead, or add events by hand.');
     if (!String(city || '').trim()) fail(400, 'Which city are these events in?');
     const place = await this.discovery.geocode(String(city).trim());
     if (place?.lat == null) fail(400, 'I couldn’t find that city. Try "Austin, TX".');
@@ -208,6 +209,7 @@ export class Sources {
   // Returns { raw, kind } or { done: [found, kind, error] } when there's nothing new to read.
   async pageEvents(src) {
     const u = new URL(src.url);
+    if (botsForbidden(u.href)) return { done: [0, null, 'This site forbids automated access in its terms, so we never read it (robots.txt-style block).'] };
     if (!(await this.allowed(u))) return { done: [0, null, 'This site asks bots not to read that page (robots.txt).'] };
     const r = await this.fetch(src.url, { headers: { 'User-Agent': UA, Accept: 'text/calendar, text/html;q=0.9, */*;q=0.5' }, signal: AbortSignal.timeout(20000), redirect: 'follow' });
     if (!r.ok) return { done: [0, null, `The page answered ${r.status}.`] };
@@ -233,6 +235,7 @@ export class Sources {
     const url = ruleUrl(rule.url, src.url);
     if (!RULE_TYPES[rule.type]) throw new Error(`Unknown rule type "${rule.type}".`);
     if (!isPublicUrl(url)) throw new Error('A rule needs a public web link.');
+    if (botsForbidden(url)) throw new Error('That site forbids automated access (its terms), so we never read it.');
     if (!(await this.allowed(new URL(url)))) throw new Error('That site asks bots not to read this link (robots.txt).');
     const readText = async html => {
       const found = parseJsonLd(html); if (found.length) return found;

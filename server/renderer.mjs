@@ -7,7 +7,7 @@
 //   - The caller checks robots.txt first; this only renders what it's asked to.
 import http from 'node:http';
 import { chromium } from 'playwright-core';
-import { isPublicUrl } from './publicurl.mjs';
+import { isPublicUrl, botsForbidden } from './publicurl.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
@@ -24,13 +24,14 @@ async function getBrowser() {
 
 export async function render(url, { waitMs = 1500 } = {}) {
   if (!isPublicUrl(url)) throw Object.assign(new Error('Only public web links.'), { status: 400 });
+  if (botsForbidden(url)) throw Object.assign(new Error('That site forbids automated access.'), { status: 403 });
   const b = await getBrowser(); used++;
   const context = await b.newContext({ userAgent: UA, javaScriptEnabled: true, serviceWorkers: 'block', viewport: { width: 1280, height: 1600 } });
   const page = await context.newPage(), responses = [];
   try {
     await page.route('**/*', route => {
       const r = route.request();
-      if (['image', 'media', 'font'].includes(r.resourceType()) || !isPublicUrl(r.url())) return route.abort();
+      if (['image', 'media', 'font'].includes(r.resourceType()) || !isPublicUrl(r.url()) || botsForbidden(r.url())) return route.abort(); // a page's Bookeo/DICE widget never loads
       return route.continue();
     });
     page.on('response', async res => {
