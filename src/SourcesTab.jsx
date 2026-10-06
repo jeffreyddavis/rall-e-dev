@@ -8,6 +8,8 @@ const NEXT = 'Next: ask the venue for a calendar feed or events page, or add its
 // The problem in plain words: what the last check found, not just "no events".
 function explain(s) {
   const detail = s.debug_note || '';
+  const ours = /^(Rall-e had a problem reading this|AI reader:|Page browser:)/.exec(s.error || '');
+  if (ours) return { tone: 'warn', ours: true, headline: 'Rall-e had a problem reading this, on our side (not the site\x27s). It retries within the hour.', tech: s.error.replace(/^Rall-e had a problem reading this[^.]*. It retries within the hour. Details: /, '') };
   if (s.debug_cause === 'fixed' && s.found > 1) return { tone: 'ok', headline: `Fixed: now reading ${s.found} events (${s.rule || 'saved rule'}).`, detail };
   if (s.debug_cause === 'forbidden_site' || /forbids automated access/.test(s.error || '')) return { tone: 'bad', headline: 'Can\'t read: its events come from a site that forbids bots (Bookeo, DICE or Resident Advisor).', detail, next: NEXT };
   if (s.debug_cause === 'robots' || /robots\.txt/.test(s.error || '')) return { tone: 'bad', headline: 'Can\'t read: the site asks bots not to read it.', detail, next: NEXT };
@@ -77,10 +79,11 @@ export default function SourcesTab({ call, ago }) {
             const x = explain(s), f = fixing[s.id], trying = s.debugging || (f && !f.report);
             return <>
               {trying ? <small className="src-why trying"><RefreshCw size={12} className="spin"/>Trying to fix… {f?.message && f.message !== 'Starting…' ? f.message : 'It takes about a minute.'}</small>
-                : x ? <div className={`src-why ${x.tone}`}><strong>{x.headline}</strong>{x.detail && <span>{x.detail}</span>}{x.next && <em>{x.next}</em>}</div>
+                : x ? <div className={`src-why ${x.tone}`}><strong>{x.headline}</strong>{x.detail && <span>{x.detail}</span>}{x.tech && <small className="src-tech">Technical detail: {x.tech}</small>}{x.next && <em>{x.next}</em>}</div>
                 : s.error && <small className="src-error">{s.error}</small>}
               {f?.report && !trying && <small className="src-report">Just now: {f.report}</small>}
-              {!trying && s.found <= 1 && <button className="ops-link src-fix" onClick={() => tryFix(s)}><Wand2 size={13}/>{s.debug_cause ? 'Try again' : 'Try to fix'}</button>}
+              {!trying && x?.ours && <button className="ops-link src-fix" disabled={!!busy} onClick={() => run(s.id, () => call('sources/refresh', { id: s.id }))}><RefreshCw size={13}/>Retry now</button>}
+              {!trying && !x?.ours && s.found <= 1 && <button className="ops-link src-fix" onClick={() => tryFix(s)}><Wand2 size={13}/>{s.debug_cause ? 'Try again' : 'Try to fix'}</button>}
             </>;
           })()}</td>
         <td>{s.city}</td><td>{s.found}</td><td>{s.fetched ? ago(s.fetched) : '—'}</td>

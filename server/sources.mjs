@@ -79,6 +79,9 @@ export function parseJsonLd(html) {
 //   {type:'browser', url} (opened in headless Chromium first, server/renderer.mjs; then its events or AI reading) ·
 //   {type:'json', url, items:'path.to.list', fields:{title, start, time?, venue?, address?, url?, image?, description?, price?}}
 // Paths are dotted ("venue.name", "images.0.url"). In a rule's url, {today} and {end} are today and today + 90 days.
+// Errors that are ours, not the site's (shown that way in /ops, retried within the hour).
+const OUR_SIDE = /^(AI reader|Page browser):/;
+export const OUR_SIDE_NOTE = 'Rall-e had a problem reading this, on our side (not the site\x27s). It retries within the hour.';
 export const RULE_TYPES = { ics: 'calendar feed', jsonld: 'event page', ai: 'page (read by AI)', json: 'JSON API', browser: 'page in a browser' };
 const at = (obj, path) => !path ? undefined : String(path).split('.').filter(Boolean).reduce((v, k) => v == null ? v : v[k], obj);
 export function whenOf(value, lng = -100) {
@@ -203,7 +206,16 @@ export class Sources {
       const put = this.db.prepare('INSERT OR REPLACE INTO curated_events VALUES (?,?,?,?,?,?)');
       for (const e of events) { registerEvent(e); put.run(e.id, id, e.localDate, e.lat, e.lng, JSON.stringify(e)); }
       return done(events.length, kind, raw.length && !events.length ? 'No upcoming events found in the next 90 days.' : raw.length ? null : 'No events found on that page.');
-    } catch (error) { return done(0, null, String(error.message).slice(0, 160)); }
+    } catch (error) {
+      const msg = String(error.message);
+      // Our side failed (the AI reader or the page browser), not the site: keep the events we had, don't spend a
+      // debugging run on it, and try again within the hour instead of in 12.
+      if (OUR_SIDE.test(msg)) {
+        this.db.prepare('UPDATE event_sources SET fetched=?, error=? WHERE id=?').run(Date.now() - 11 * 3600000, `${OUR_SIDE_NOTE} Details: ${msg}`.slice(0, 500), id);
+        return { found: src.found, error: msg };
+      }
+      return done(0, null, msg.slice(0, 300));
+    }
   }
   // The source's own link: a feed, schema.org events, Localist, a feed the page links to, else AI reads the page.
   // Returns { raw, kind } or { done: [found, kind, error] } when there's nothing new to read.
@@ -424,6 +436,8 @@ export class Sources {
   }
   schedule() {
     if (this.timer) return;
+    // Sources that failed on our side (e.g. the AI key problem on 10-05) are read again right after startup.
+    this.db.prepare("UPDATE event_sources SET fetched=NULL WHERE error LIKE 'AI reader:%' OR error LIKE 'Page browser:%' OR error LIKE 'Rall-e had a problem reading this%'").run();
     const tick = async () => { for (const s of this.db.prepare("SELECT id FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND (fetched IS NULL OR fetched < ?)").all(Date.now() - 12 * 3600000)) await this.refresh(s.id).catch(() => {}); };
     this.timer = setInterval(() => tick().catch(() => {}), 3600000); this.timer.unref?.();
     setTimeout(() => tick().catch(() => {}), 60000).unref?.();

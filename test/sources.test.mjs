@@ -212,3 +212,19 @@ test('Try to fix says what it is doing, and each run records an outcome /ops can
   assert.equal(row('other').debug_cause, 'fixed');
   store.close();
 });
+
+test('a failure on our side (AI reader, page browser) keeps the events, says it is ours, and retries within the hour', async () => {
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai' }, { messages: { create: async () => ({}) } },
+    async url => url.includes('robots.txt') ? { ok: false, text: async () => '' } : { ok: true, status: 200, headers: new Map([['content-type', 'text/html']]), text: async () => '<p>Shows every Friday</p>' });
+  store.db.prepare("INSERT INTO event_sources (id, url, name, city, created, found) VALUES ('viper', 'https://viper.example/', 'The Viper Room', 'LA', 1, 7)").run();
+  sms.flow.agent.key = 'k'; let debugged = 0; sms.sources.debugLater = () => { debugged++; return true; };
+  sms.sources.extract = async () => { throw new Error('AI reader: This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use.'); };
+  const before = Date.now(), r = await sms.sources.refresh('viper');
+  const row = store.db.prepare("SELECT * FROM event_sources WHERE id='viper'").get();
+  assert.equal(r.found, 7); assert.equal(row.found, 7); // events kept
+  assert.match(row.error, /^Rall-e had a problem reading this, on our side \(not the site's\)\. It retries within the hour\. Details: AI reader: .*workspace to use\.$/); // whole message, not cut off
+  assert.ok(row.fetched <= before - 11 * 3600000 + 5000); // due again at the next hourly check
+  assert.equal(debugged, 0);
+  store.close();
+});

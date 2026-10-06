@@ -118,3 +118,5 @@
 .src-why.ok{background:#e3f4ea;color:#23764a}.src-why.warn{background:#fff4dc;color:#7a5200}.src-why.bad{background:#ffe9e5;color:#8f1d12}.src-why.bad span,.src-why.warn span{color:#3d4c55}
 .src-why.trying{flex-direction:row;align-items:center;gap:6px;background:#e8eefc;color:#2c4fa0}
 .src-report{display:block;margin-top:4px;font-size:12px;color:#2c4fa0;font-weight:600}
+.src-tech{display:block;font-size:11px;color:#7a868c;word-break:break-word}
+.src-error{word-break:break-word}
