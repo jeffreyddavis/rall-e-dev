@@ -31,7 +31,7 @@ test('search merges Ticketmaster, SeatGeek and Google Places near a geocoded loc
   const found = await t.d.search(loc, { what: 'fun', days: 7 });
   assert.deepEqual(found.map(e => e.short), ['Jazz Night', 'Rubber Ducks vs. Seawolves', 'Luigi’s']);
   const [jazz, ducks, luigi] = found;
-  assert.equal(jazz.source, 'Ticketmaster'); assert.equal(jazz.time, 'Sat, Oct 3 · 8:00 PM'); assert.equal(jazz.priceText, '$25–$60'); assert.equal(jazz.area, 'Akron, OH');
+  assert.equal(jazz.source, 'Ticketmaster (also SeatGeek)'); assert.deepEqual(jazz.sources, ['Ticketmaster', 'SeatGeek']); assert.equal(jazz.time, 'Sat, Oct 3 · 8:00 PM'); assert.equal(jazz.priceText, '$25–$60'); assert.equal(jazz.area, 'Akron, OH');
   assert.equal(ducks.priceText, 'from $12'); assert.equal(luigi.priceText, '$$'); assert.equal(luigi.category, 'dinner'); assert.equal(luigi.color, 'dinner');
   const tm = new URL(t.calls.find(c => c.url.includes('ticketmaster')).url);
   assert.equal(tm.searchParams.get('latlong'), '41.0814,-81.519'); assert.equal(tm.searchParams.get('radius'), '25');

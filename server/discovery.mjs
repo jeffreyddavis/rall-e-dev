@@ -8,6 +8,7 @@ import { fail } from './store.mjs';
 import { meter } from './usage.mjs';
 import { stats } from './stats.mjs';
 import { tzFromLng } from './timeline.mjs';
+import { mergeEvents, mixMusic, dayOf } from './merge.mjs';
 
 const short = s => createHash('sha1').update(String(s)).digest('base64url').slice(0, 10);
 const DAY = 86400000;
@@ -299,7 +300,12 @@ export class Discovery {
     if (musicy && loc.lat != null && this.curated?.adoptMusicVenues) this.curated.adoptMusicVenues(loc).catch(e => console.error('Adopt venues:', e.message));
     const eventy = !category || ['music', 'live shows', 'comedy', 'sports', 'theatre', 'arts', 'nightlife'].includes(category) || /show|concert|game|comedy|music|theat|festival|event/i.test(what);
     const placey = !category || PLACE_QUERIES[category] || /eat|dinner|brunch|lunch|drink|bar|restaurant|museum|park|hike|coffee|bowling|golf|spa|climb/i.test(what) || !eventy;
-    if (this.keys.ticketmaster && eventy) tasks.push(this.ticketmaster(loc, what, category, start, end).catch(e => { console.error('Ticketmaster:', e.message); return []; }));
+    if (this.keys.ticketmaster && eventy) {
+      // Ticketmaster returns the earliest events first, so over a few days the first evening fills every slot ("this
+      // weekend" had no Sunday). Up to 4 days: one query per day, so each day gets its share.
+      const spans = range && (end - start) / DAY <= 4 ? Array.from({ length: Math.round((end - start) / DAY) }, (_, i) => [start + i * DAY, start + (i + 1) * DAY]) : [[start, end]];
+      for (const [a, b] of spans) tasks.push(this.ticketmaster(loc, what, category || (musicy ? 'music' : ''), a, b, { size: musicy ? (spans.length > 1 ? 30 : 50) : 10 }).catch(e => { console.error('Ticketmaster:', e.message); return []; }));
+    }
     // Farmers markets, farm stands, u-pick and agritourism: USDA Local Food Portal (free key). PickYourOwn.org forbids
     // republishing, so it's never ingested.
     const farmy = /farmers'? ?markets?|farm ?stands?|\bu-?pick\b|pick[- ]your[- ]own|(apple|berry|strawberr|peach|pumpkin|blueberr)\w* (picking|patch)|pumpkin patch|orchards?|agritourism|corn maze|hayrides?|tree farm|farm (visit|tour|day)/i.test(what);
@@ -309,20 +315,18 @@ export class Discovery {
     if (this.keys.google && (placey || musicy) && loc.lat != null) tasks.push(this.places(loc, musicy && !placey ? `${genre ? `${genre} ` : ''}live music bars and small music venues` : what, category, date, { endDate: end_date, time })
       .then(list => musicy ? list.filter(e => !BIG_VENUE.test(`${e.short} ${e.description || ''}`)) : list).catch(e => { console.error('Places:', e.message); return []; }));
     tasks.push(this.local(loc, { what, category, start, end }));
-    const seen = new Set(), out = [];
-    for (const e of (await Promise.all(tasks)).flat()) {
-      const key = `${e.short.toLowerCase().replace(/\W/g, '')}|${(e.startsAt || e.localDate || '').slice(0, 10)}`;
-      if (seen.has(key)) continue; seen.add(key); out.push(e);
-    }
-    // Music: local gigs first (venue calendars and curated sources), then smaller Ticketmaster shows, local venues, and big venues last.
+    // The same show from several sources becomes one event with the best of each (server/merge.mjs). Then only the
+    // local days asked for: providers search in UTC, so "Friday" also caught Thursday-evening shows on the West Coast.
+    const firstDay = ok(date) ? date : '', lastDay = range ? range.to : firstDay;
+    const out = mergeEvents((await Promise.all(tasks)).flat()).filter(e => !firstDay || !dayOf(e) || (dayOf(e) >= firstDay && dayOf(e) <= lastDay));
+    // Music: a mix of local/small-venue shows and bigger names from every source, not one source's list. Asking for
+    // arenas or big tours keeps the sources' own order.
     if (musicy && !/\b(arena|stadium|big|tour|concert hall)\b/i.test(what)) {
       const big = e => BIG_VENUE.test(e.venue || '') || (e.capacity || 0) >= 3000;
-      const rank = e => e.kind === 'place' ? 2 : big(e) ? 3 : e.source !== 'Ticketmaster' && e.source !== 'SeatGeek' ? 0 : 1;
-      out.sort((a, b) => rank(a) - rank(b));
+      out.splice(0, out.length, ...mixMusic(out, { big }));
     }
     // A range ("this weekend") shouldn't come back as 12 Friday rows: alternate days, keeping the order within each day.
     if (range) {
-      const dayOf = e => e.localDate || (e.startsAt || '').slice(0, 10) || '';
       const dated = out.filter(dayOf), undated = out.filter(e => !dayOf(e)), days = [...new Set(dated.map(dayOf))];
       if (days.length > 1) { const by = days.map(d => dated.filter(e => dayOf(e) === d)), mixed = []; for (let i = 0; mixed.length < dated.length; i++) for (const b of by) if (b[i]) mixed.push(b[i]); out.splice(0, out.length, ...mixed, ...undated); }
     }
@@ -372,8 +376,10 @@ export class Discovery {
         description: `${r._dir === 'farmersmarket' ? 'Farmers market' : r._dir === 'agritourism' ? 'Farm visit / agritourism' : 'On-farm market'}${r.listing_desc ? `: ${String(r.listing_desc).slice(0, 160)}` : ''}. Hours are self-reported, so check before going.` });
     });
   }
-  async ticketmaster(loc, what, category, start, end) {
-    const q = new URLSearchParams({ apikey: this.keys.ticketmaster, radius: '25', unit: 'miles', size: '10', sort: 'date,asc', startDateTime: iso(start), endDateTime: iso(end) });
+  async ticketmaster(loc, what, category, start, end, { size = 10 } = {}) {
+    // Days are asked for in local time: move the UTC window by the area's offset (else "Friday" in LA starts Thursday 5 PM).
+    const offset = loc.lng != null ? (Math.round(loc.lng / 15) + 1) * 3600000 : 0, from = Math.max(Date.now(), start - offset);
+    const q = new URLSearchParams({ apikey: this.keys.ticketmaster, radius: '25', unit: 'miles', size: String(size), sort: 'date,asc', startDateTime: iso(from), endDateTime: iso(end - offset) });
     const zip = /\b(\d{5})\b/.exec(loc.label)?.[1];
     if (loc.lat != null) q.set('latlong', `${loc.lat},${loc.lng}`);
     else if (zip) q.set('postalCode', zip);
@@ -387,7 +393,7 @@ export class Discovery {
       const v = ev._embedded?.venues?.[0] || {}, c = ev.classifications?.[0] || {}, cat = (c.segment?.name || '').toLowerCase().includes('music') ? 'music' : (c.genre?.name || c.segment?.name || 'event').toLowerCase();
       const price = ev.priceRanges?.[0];
       return this.shape({ id: `tm_${short(ev.id)}`, source: 'Ticketmaster', category: cat, short: ev.name, venue: v.name || 'Venue TBA', area: [v.city?.name, v.state?.stateCode].filter(Boolean).join(', '),
-        address: v.address?.line1, time: when(ev.dates?.start?.localDate, ev.dates?.start?.localTime), startsAt: ev.dates?.start?.dateTime,
+        address: v.address?.line1, time: when(ev.dates?.start?.localDate, ev.dates?.start?.localTime), startsAt: ev.dates?.start?.dateTime, localDate: ev.dates?.start?.localDate || null,
         lat: v.location?.latitude ? Number(v.location.latitude) : null, lng: v.location?.longitude ? Number(v.location.longitude) : null,
         price: price ? Math.round(price.min) : null, priceText: price ? `$${Math.round(price.min)}${price.max > price.min ? `–$${Math.round(price.max)}` : ''}` : 'See listing',
         age: ev.ageRestrictions?.legalAgeEnforced ? '21+' : 'See listing', url: ev.url, image: ev.images?.find(i => i.ratio === '16_9')?.url, description: `${c.genre?.name || c.segment?.name || 'Live event'} at ${v.name || 'a local venue'}.` });
@@ -401,7 +407,7 @@ export class Discovery {
     return (r.events || []).map(ev => {
       const [d, t] = String(ev.datetime_local || '').split('T'), v = ev.venue || {};
       return this.shape({ id: `sg_${short(ev.id)}`, source: 'SeatGeek', category: (ev.type || 'event').replace(/_/g, ' '), short: ev.short_title || ev.title, venue: v.name || 'Venue TBA', area: [v.city, v.state].filter(Boolean).join(', '),
-        address: v.address, time: ev.time_tbd ? when(d) : when(d, t), startsAt: ev.datetime_utc ? `${ev.datetime_utc}Z` : null,
+        address: v.address, time: ev.time_tbd ? when(d) : when(d, t), startsAt: ev.datetime_utc ? `${ev.datetime_utc}Z` : null, localDate: d || null,
         price: ev.stats?.lowest_price ?? null, priceText: ev.stats?.lowest_price ? `from $${ev.stats.lowest_price}` : 'See listing', age: 'See listing', url: ev.url, image: ev.performers?.[0]?.image, description: `${(ev.type || 'Event').replace(/_/g, ' ')} at ${v.name || 'a local venue'}.` });
     });
   }
