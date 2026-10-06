@@ -208,6 +208,8 @@ export class Agent {
     if (this.isTeam(ctx.phone)) common.push(
       T('add_source', 'TEAM ONLY: add a website that lists events (a venue, library, campus or city calendar) as an event source right away. It is read now and every 12 hours, and shows in /ops Sources.', { url: { type: 'string', description: 'Full link, https://…' }, city: { type: 'string', description: 'City the events are in, e.g. "Austin, TX"' }, name: { type: 'string', description: 'Short name, if they gave one' } }, ['url', 'city']),
       T('add_idea', 'TEAM ONLY: put an idea on the team list in /ops Ideas (a feature idea, feedback or bug, a hidden gem, or an event website to look at later).', { kind: { type: 'string', enum: ['feature', 'feedback', 'gem', 'source'] }, title: { type: 'string', description: 'One-line summary' }, note: { type: 'string', description: 'Details, in their words' }, city: { type: 'string' }, url: { type: 'string' } }, ['kind', 'title']));
+    // Rall-e shows as a plain number until they save the contact card (sent once, at their first text).
+    if (role !== 'new') common.push(T('send_contact_card', 'Send Rall-e\'s contact card again (name, both numbers, the Rall-e icon), when they ask for it, or say Rall-e shows up as just a number or without the icon.'));
     if (role !== 'new' && this.flow.sms.whatsNew) common.push(
       T('whats_new', 'What changed in Rall-e recently (the release notes members get texted). Use when they ask what\'s new or about an update text.'),
       T('set_updates', 'Turn their "what\'s new" update texts off or on, when they ask (e.g. "stop sending me the update texts"). Plan texts are not affected.', { on: { type: 'boolean' } }, ['on']));
@@ -371,6 +373,10 @@ export class Agent {
         const theirs = flow.sms.favorites.friendsLists(phone, { name: input.friend || '', city: input.city || '' });
         const fmt = v => `${v.who}'s top ${v.category} in ${v.city}: ${v.items.map(i => `#${i.rank} ${i.name}`).join(', ')} (${v.url})`;
         return [...mine.map(v => `Theirs: ${fmt(v)}`), ...theirs.map(fmt)].join('\n') || (input.friend ? `No lists from ${input.friend} yet (or they're not connected).` : 'No favorites lists yet. Suggest making one: "my top 5 restaurants in <city>".');
+      }
+      if (name === 'send_contact_card') {
+        flow.sendCard(phone, true); stats.bump('contact_cards_resent', 1, phone);
+        return 'Sent the contact card (it arrives as its own message). Tell them in one line: tap it, then "Create New Contact" (or "Add to Existing Contact" if they saved Rall-e before), and Rall-e shows with its name and icon.';
       }
       if (name === 'friends_places') {
         const loc = await this.discovery.geocode(String(input.city || '')).catch(() => null);

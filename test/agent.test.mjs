@@ -64,7 +64,7 @@ test('guests talk to the agent; group notifications stay deterministic; failures
     tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
     tool('make_plan', { event_id: 'dinner' }), body => { assert.match(body.messages.at(-1).content[0].content, /plan page[^\n]*\/n\/[\w-]+/); return say('Dinner at Casa Vera it is. Who is coming?'); },
     tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }, { name: 'Dave', phone: '3105550103' }] }), say('Both invited!'),
-    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know', 'whats_new', 'set_updates', 'book_table', 'update_booking', 'record_purchase', 'my_bookings', 'going_to', 'who_else_going', 'set_going_share', 'not_going', 'share_tip', 'set_favorites', 'favorites', 'remove_favorites', 'friends_places', 'join_friends_plan'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
+    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know', 'whats_new', 'set_updates', 'book_table', 'update_booking', 'record_purchase', 'my_bookings', 'going_to', 'who_else_going', 'set_going_share', 'not_going', 'share_tip', 'set_favorites', 'favorites', 'remove_favorites', 'friends_places', 'join_friends_plan', 'send_contact_card'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
     say('You’re in! See you Saturday.'),
     tool('message_group', { text: 'I can drive if anyone needs a ride' }), say('Passed that along to the group.'),
     new Error('network down')
@@ -210,5 +210,14 @@ test('a texted photo (a flyer, a screenshot) reaches the AI as an image, on Clau
   agent.fetch = async (url, init) => { sent = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }) }; };
   await agent.callOpenAI({ system: 's', tools: [], messages: [{ role: 'user', content: [block, { type: 'text', text: '[sent a photo]' }] }] });
   assert.match(sent.messages[1].content[0].image_url.url, /^data:image\/jpeg;base64,/);
+  t.store.close();
+});
+
+test('send_contact_card re-sends the current card (both numbers, the icon) on request', async () => {
+  const t = setup([]);
+  t.sms.flow.sendCard(HOST); t.sms.flow.sendCard(HOST); // normally only once
+  assert.equal(t.out(HOST, 'card').length, 1);
+  assert.match(await t.sms.flow.agent.run(HOST, 'send_contact_card', {}, { t: null }, 'you show up as just a number'), /Create New Contact/);
+  assert.equal(t.out(HOST, 'card').length, 2); assert.equal(t.out(HOST, 'card')[1].media, 'https://rall-e.ai/rall-e.vcf');
   t.store.close();
 });
