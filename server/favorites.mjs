@@ -13,7 +13,33 @@ export class Favorites {
   constructor(sms) {
     this.sms = sms; this.db = sms.db;
     this.db.exec(`CREATE TABLE IF NOT EXISTS fav_lists (id TEXT PRIMARY KEY, phone TEXT NOT NULL, category TEXT NOT NULL, city TEXT NOT NULL, lat REAL, lng REAL, token TEXT NOT NULL UNIQUE, updated INTEGER NOT NULL, UNIQUE (phone, category, city));
-      CREATE TABLE IF NOT EXISTS fav_items (list TEXT NOT NULL, rank INTEGER NOT NULL, name TEXT NOT NULL, note TEXT, address TEXT, area TEXT, lat REAL, lng REAL, url TEXT, place_id TEXT, PRIMARY KEY (list, rank));`);
+      CREATE TABLE IF NOT EXISTS fav_items (list TEXT NOT NULL, rank INTEGER NOT NULL, name TEXT NOT NULL, note TEXT, address TEXT, area TEXT, lat REAL, lng REAL, url TEXT, place_id TEXT, PRIMARY KEY (list, rank));
+      CREATE TABLE IF NOT EXISTS fav_friend_pages (token TEXT PRIMARY KEY, phone TEXT NOT NULL, city TEXT NOT NULL, lat REAL NOT NULL, lng REAL NOT NULL, created INTEGER NOT NULL);`);
+  }
+  // "Where do my friends go in Austin?" (Marc #25, like Corner): every place on connected friends' lists near a city.
+  friendsPlaces(phone, loc, km = 40) {
+    if (loc?.lat == null || !this.sms.going) return [];
+    const friends = [...this.sms.going.connections(phone)]; if (!friends.length) return [];
+    const dLat = km / 111, dLng = km / (111 * Math.cos(loc.lat * Math.PI / 180));
+    return this.db.prepare(`SELECT l.phone, l.category, l.city, i.rank, i.name, i.note, i.address, i.area, i.url FROM fav_lists l JOIN fav_items i ON i.list=l.id
+      WHERE l.phone IN (${friends.map(() => '?').join(',')}) AND l.lat BETWEEN ? AND ? AND l.lng BETWEEN ? AND ? ORDER BY l.category, i.rank, l.updated DESC`)
+      .all(...friends, loc.lat - dLat, loc.lat + dLat, loc.lng - dLng, loc.lng + dLng)
+      .map(({ phone: p, ...r }) => ({ ...r, who: this.sms.invites?.nameOf(p) || 'A friend' }));
+  }
+  // A shareable page of those places (/fp/<token>, 30 days). It shows friends' first names and places, never numbers,
+  // and always the lists as they are now.
+  friendsPage(phone, loc) {
+    const old = this.db.prepare('SELECT token FROM fav_friend_pages WHERE phone=? AND city=? AND created>?').get(phone, loc.label, Date.now() - 30 * 86400000);
+    const token = old?.token || randomBytes(9).toString('base64url');
+    if (!old) this.db.prepare('INSERT INTO fav_friend_pages VALUES (?,?,?,?,?,?)').run(token, phone, loc.label, loc.lat, loc.lng, Date.now());
+    return `${this.sms.base || 'https://rall-e.ai'}/fp/${token}`;
+  }
+  friendsView(token) {
+    const p = this.db.prepare('SELECT * FROM fav_friend_pages WHERE token=? AND created>?').get(String(token || ''), Date.now() - 30 * 86400000);
+    if (!p) fail(404, 'This page isn’t available anymore. Text Rall-e for a fresh one.');
+    const places = this.friendsPlaces(p.phone, { lat: p.lat, lng: p.lng }), groups = [];
+    for (const r of places) { let g = groups.find(x => x.category === r.category); if (!g) groups.push(g = { category: r.category, items: [] }); g.items.push({ name: r.name, who: r.who, rank: r.rank, note: r.note, area: r.area || r.address, url: r.url }); }
+    return { city: p.city, for: this.sms.invites?.nameOf(p.phone) || '', friends: [...new Set(places.map(r => r.who))], groups };
   }
   get discovery() { return this.sms.discovery; }
   url(token) { return `${this.sms.base || 'https://rall-e.ai'}/f/${token}`; }

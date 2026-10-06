@@ -65,3 +65,26 @@ test('favorites still find a place on Google when it has no hours listed or is c
   assert.equal(v.items[0].address, '61 Washington St, Providence, RI');
   store.close();
 });
+
+test('"where do my friends go in Providence?": friends\' picks near a city, a 30-day page, and the agent tool', async () => {
+  const { store, sms } = setup(), db = store.db, C = '+13107770943';
+  db.prepare("INSERT INTO sms_threads (phone, digest, plan, participant, role, muted, updated) VALUES (?, 'd1', 'p1', '', 'host', 0, ?), (?, 'd1', 'p1', ?, 'guest', 0, ?)").run(A, Date.now(), B, B, Date.now());
+  sms.invites.nameOf = p => ({ [A]: 'Marc', [B]: 'Jeff' })[p] || '';
+  await sms.favorites.set(A, { category: 'coffee', city: 'Providence, RI', places: [{ name: 'Bolt Coffee', note: 'the cortado' }, 'Dave’s Coffee'] });
+  await sms.favorites.set(A, { category: 'bars', city: 'Providence, RI', places: ['The Eddy'] });
+  await sms.favorites.set(C, { category: 'coffee', city: 'Providence, RI', places: ['Not a friend’s pick'] }); // not connected to B
+  const near = sms.favorites.friendsPlaces(B, { lat: 41.82, lng: -71.41 });
+  assert.deepEqual(near.map(r => [r.who, r.category, r.rank, r.name]), [['Marc', 'bars', 1, 'The Eddy'], ['Marc', 'coffee', 1, 'Bolt Coffee'], ['Marc', 'coffee', 2, 'Dave’s Coffee']]);
+  assert.deepEqual(sms.favorites.friendsPlaces(B, { lat: 34.05, lng: -118.24 }), []);
+  const link = sms.favorites.friendsPage(B, { lat: 41.82, lng: -71.41, label: 'Providence, RI' });
+  assert.equal(sms.favorites.friendsPage(B, { lat: 41.82, lng: -71.41, label: 'Providence, RI' }), link); // same page for the same city
+  const page = sms.favorites.friendsView(link.split('/').pop());
+  assert.equal(page.for, 'Jeff'); assert.deepEqual(page.friends, ['Marc']); assert.deepEqual(page.groups.map(g => [g.category, g.items.length]), [['bars', 1], ['coffee', 2]]);
+  assert.ok(!JSON.stringify(page).includes('+1310')); // never phone numbers
+  db.prepare('UPDATE fav_friend_pages SET created=0').run();
+  assert.throws(() => sms.favorites.friendsView(link.split('/').pop()), /isn’t available anymore/);
+  const out = await sms.flow.agent.run(B, 'friends_places', { city: 'Providence, RI' }, { t: null }, 'where do my friends go in providence');
+  assert.match(out, /3 places from 1 friends/); assert.match(out, /Marc's #1 coffee: Bolt Coffee \("the cortado"\)/); assert.match(out, /\/fp\/[\w-]+/);
+  assert.match(await sms.flow.agent.run(C, 'friends_places', { city: 'Providence, RI' }, { t: null }, 'x'), /None of their friends/);
+  store.close();
+});

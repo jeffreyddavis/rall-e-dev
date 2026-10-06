@@ -100,6 +100,9 @@ const server = http.createServer(async (req, res) => {
       }
       const favMatch = /^\/api\/fav\/([\w-]{8,20})$/.exec(url.pathname);
       if (favMatch && req.method === 'GET') return json(res, 200, { ...sms.favorites.view(favMatch[1]), textNumbers: textNumbers() });
+      // "Where my friends go" page (/fp/<token>): friends' first names and places only.
+      const friendsMatch = /^\/api\/friends-places\/([\w-]{8,20})$/.exec(url.pathname);
+      if (friendsMatch && req.method === 'GET') return json(res, 200, sms.favorites.friendsView(friendsMatch[1]));
       const eventMatch = /^\/api\/event\/([\w-]{1,40})$/.exec(url.pathname);
       if (eventMatch && req.method === 'GET') { const e = eventById(eventMatch[1]); if (!e) fail(404, 'That listing is no longer available.'); return json(res, 200, { event: publicEvent(e), textNumbers: textNumbers() }); }
       // ---------- invite-only: invite links, the private "me" page, the waitlist ----------

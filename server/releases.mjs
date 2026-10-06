@@ -25,5 +25,7 @@ export const RELEASES = [
   { id: '2026-10-05-team-source-fixer', date: '2026-10-05', team: true, hold: true, text: 'Sources that show 0 or 1 events now fix themselves: a smarter check works out where the page really loads its events from and saves a rule for it. See the "Fixed:" notes in /ops → Sources, or tap Try to fix.' },
   { id: '2026-10-05-team-footer', date: '2026-10-05', team: true, hold: true, text: 'Update texts now include the "no updates" line only on someone\'s first update and every 5th after that, instead of every time.' },
   { id: '2026-10-05-team-browser', date: '2026-10-05', team: true, hold: true, text: 'Sources whose events only show up after the page loads (like venues using a ticketing widget) can now be read with a real browser on our server. Sites that forbid bots (Bookeo, DICE, Resident Advisor) are never touched, so venues that only list events through them stay at 0.' },
-  { id: '2026-10-05-music-mix', date: '2026-10-05', hold: true, text: 'Live music picks now mix small local shows and bigger names from all our sources, with ticket prices shown when the venue lists them.' }
+  { id: '2026-10-05-music-mix', date: '2026-10-05', hold: true, text: 'Live music picks now mix small local shows and bigger names from all our sources, with ticket prices shown when the venue lists them.' },
+  { id: '2026-10-06-screenshot-plan', date: '2026-10-06', hold: true, text: 'Saw something fun? Text me a screenshot or a flyer and I\x27ll turn it into a plan you can invite friends to.' },
+  { id: '2026-10-06-friends-places', date: '2026-10-06', hold: true, text: 'Traveling? Ask me "where do my friends go in Austin?" and I\x27ll show your friends\x27 favorite spots there, with a page you can share.' }
 ];
