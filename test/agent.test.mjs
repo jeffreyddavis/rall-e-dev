@@ -189,3 +189,26 @@ test('a friend on someone else\'s plan can start their own plan without touching
   assert.ok(alex.plan.participants.some(p => p.name === 'Mike'));
   t.store.close();
 });
+
+test('a texted photo (a flyer, a screenshot) reaches the AI as an image, on Claude and on the backup', async () => {
+  const sharp = (await import('sharp').catch(() => null))?.default; if (!sharp) return; // image tools not installed here
+  const flyer = await sharp({ create: { width: 2400, height: 3000, channels: 3, background: '#203040' } }).png().toBuffer();
+  const t = setup([body => {
+    const last = body.messages.at(-1);
+    assert.ok(Array.isArray(last.content)); assert.equal(last.content[0].type, 'image'); assert.equal(last.content[0].source.media_type, 'image/jpeg');
+    assert.match(last.content[1].text, /\[sent a photo\]/);
+    return say('Got it: Night Market, Sat Oct 17.');
+  }]);
+  t.sms.photos.download = async () => flyer; // the photo as Twilio/Sendblue would serve it
+  t.sms.lastMedia.set(HOST, { url: 'https://api.twilio.com/media/x', at: Date.now() });
+  const block = await t.sms.flow.agent.photoBlock(HOST);
+  const meta = await sharp(Buffer.from(block.source.data, 'base64')).metadata();
+  assert.ok(meta.width <= 1568 && meta.height <= 1568 && meta.format === 'jpeg'); // shrunk to what the model reads well
+  assert.equal(await t.sms.flow.agent.respond(HOST, '[sent a photo]'), 'Got it: Night Market, Sat Oct 17.');
+  // The OpenAI backup gets the same image as a data URL.
+  const agent = t.sms.flow.agent; agent.openaiKey = 'ok'; let sent;
+  agent.fetch = async (url, init) => { sent = JSON.parse(init.body); return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'ok' } }], usage: {} }) }; };
+  await agent.callOpenAI({ system: 's', tools: [], messages: [{ role: 'user', content: [block, { type: 'text', text: '[sent a photo]' }] }] });
+  assert.match(sent.messages[1].content[0].image_url.url, /^data:image\/jpeg;base64,/);
+  t.store.close();
+});

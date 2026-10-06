@@ -435,7 +435,7 @@ export class Discovery {
         const fits = ranges.length && (wantMinute == null || openAt(ranges, wantMinute)) && (d !== today || ranges.some(([, b]) => b > nowMinute));
         return fits ? { d, dayName, hours } : null;
       }).find(Boolean);
-      if (!openDay && !anyHours) return null;
+      if (!openDay && !anyHours) return null; // looking a place up by name (favorites, venues to watch) doesn't need it open
       const { dayName, hours } = openDay || {}, dayWord = openDay?.d === today ? 'today' : dayName?.slice(0, 3);
       return this.shape({ id: `gp_${short(p.id)}`, source: 'Google Places', kind: 'place', category: /restaurant|food|cafe|bakery|bistro|grill|pizz|sushi|taco/i.test(type) ? 'dinner' : /bar|pub|lounge|night/i.test(type) ? 'nightlife' : /museum|gallery|art/i.test(type) ? 'museums' : /park|trail|garden|beach|hik/i.test(type) ? 'nature' : type.toLowerCase(),
         lat: p.location?.latitude ?? null, lng: p.location?.longitude ?? null, typeLabel: type.replace(/ restaurant$/i, ''),

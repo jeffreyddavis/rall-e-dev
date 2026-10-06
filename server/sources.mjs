@@ -160,7 +160,7 @@ export class Sources {
     this.db.prepare('INSERT OR REPLACE INTO source_adoptions VALUES (?, ?)').run(k, Date.now());
     const { BIG_VENUE } = await import('./discovery.mjs');
     const reviews = t => Number(/\((\d+)\)/.exec(t.rating || '')?.[1] || 0);
-    const found = await this.discovery.places(loc, 'live music bars and small music venues', 'music');
+    const found = await this.discovery.places(loc, 'live music bars and small music venues', 'music', '', { anyHours: true }); // finding venues to watch, not picks for today
     const picks = found.filter(v => v.website && !BIG_VENUE.test(`${v.short} ${v.description || ''}`) && reviews(v) < 8000
       && !this.db.prepare('SELECT 1 FROM event_sources WHERE url=?').get(v.website)).slice(0, 8);
     let n = 0;

@@ -23,7 +23,7 @@ export class Favorites {
     const where = await this.discovery.geocode(clean(city, 60)).catch(() => null); if (where?.lat == null) fail(400, 'Which city is this list for?');
     const list = (places || []).map(p => typeof p === 'string' ? { name: p } : p).map(p => ({ name: clean(p.name, 100), note: clean(p.note, 160) })).filter(p => p.name).slice(0, MAX);
     if (!list.length) fail(400, 'Name at least one place.');
-    const found = await Promise.all(list.map(p => this.discovery.keys?.google ? this.discovery.places({ lat: where.lat, lng: where.lng, label: where.label }, p.name, '').then(r => r[0]).catch(() => null) : null));
+    const found = await Promise.all(list.map(p => this.discovery.keys?.google ? this.discovery.places({ lat: where.lat, lng: where.lng, label: where.label }, p.name, '', '', { anyHours: true }).then(r => r[0]).catch(() => null) : null));
     let row = this.db.prepare('SELECT * FROM fav_lists WHERE phone=? AND category=? AND city=?').get(phone, cat, where.label);
     if (!row) { const id = `fl_${randomBytes(5).toString('base64url')}`; this.db.prepare('INSERT INTO fav_lists VALUES (?,?,?,?,?,?,?,?)').run(id, phone, cat, where.label, where.lat, where.lng, randomBytes(9).toString('base64url'), Date.now()); row = this.db.prepare('SELECT * FROM fav_lists WHERE id=?').get(id); }
     this.db.prepare('DELETE FROM fav_items WHERE list=?').run(row.id);

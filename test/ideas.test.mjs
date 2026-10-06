@@ -54,3 +54,14 @@ test('the core team can add sources and ideas by text, straight in; other member
   assert.match(await agent.run(TEAM, 'add_source', { url: 'https://akronlibrary.example/events', city: 'Akron, OH' }, { t: null }, 'add source'), /Added "Akron Library" \(Akron, OH\) as an event source: 12 upcoming events found/);
   store.close();
 });
+
+test('favorites still find a place on Google when it has no hours listed or is closed today', async () => {
+  const store = new Store(':memory:');
+  const place = { id: 'P1', displayName: { text: 'Bolt Coffee' }, formattedAddress: '61 Washington St, Providence, RI', shortFormattedAddress: '61 Washington St', primaryTypeDisplayName: { text: 'Coffee shop' }, location: { latitude: 41.82, longitude: -71.41 },
+    regularOpeningHours: { weekdayDescriptions: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `${d}: Closed`) } };
+  const fetchImpl = async url => String(url).includes('places:searchText') ? { ok: true, status: 200, headers: new Map(), json: async () => ({ places: [place] }) } : geo(41.82, -71.41, 'Providence, RI');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', GOOGLE_MAPS_API_KEY: 'gk' }, { messages: { create: async () => ({}) } }, fetchImpl);
+  const v = await sms.favorites.set(A, { category: 'coffee', city: 'Providence, RI', places: ['Bolt Coffee'] });
+  assert.equal(v.items[0].address, '61 Washington St, Providence, RI');
+  store.close();
+});

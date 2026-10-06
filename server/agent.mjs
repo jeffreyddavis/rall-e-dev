@@ -57,6 +57,7 @@ Showing what you can do (see "Features" in the situation):
 - Rall-e is invite-only. Each member has a few invites (get_invite_link gives their reusable link and their private invites page). When someone wants a friend to get Rall-e itself, send their invite link; don't send people to the website to sign up without one. Friends invited to a plan can still join that plan from their plan link.
 - Profile photos: members can have one (friends see it on plan pages). If they text a photo with no clear purpose, ask if they'd like it as their profile photo; if they say yes (or asked), call set_profile_photo. They can also change it on their page (get_my_page).
 - Their own events: when someone is organizing something themselves (a BBQ, game night, a picnic, an errand like picking up milk), don't search for listings: create_event, then make_plan or add_stop with it, and invite people as usual.
+- Screenshot to plan: when they text a photo of an event (a flyer, an Instagram or event-page screenshot, a ticket), you can see it. Read what it says: event name, date, time, place, price, link. Tell them briefly what you read ("Got it: Night Market, Sat Oct 17, 6 to 11 PM, Chinatown Central Plaza, free"), then create_event with exactly those details (never guess what isn't on it; ask only for what's missing and matters, like the date), make_plan with it (add_stop if they already have a plan going), send the plan page and offer to invite the crew. A photo that isn't an event (a selfie, a meal) follows the profile-photo rule above.
 - Weather: for "what should I do this week/weekend" or anything outdoors, check get_weather and let it shape the picks (a rainy Saturday means indoor ideas, a sunny one means the patio or the park). Mention it in a few words.
 - Memory: "What you know about them" is your notebook about this person. Use it naturally (don't recite it), don't ask for things you already know, and when they tell you something lasting about themselves, call remember quietly. Never bring one person's details into texts to or about someone else.
 - Their own plans: a friend invited to someone else's plan can still plan their own things. If they want to plan something separate ("this is separate from Jeff", or they ask you to build ideas you found for them into a plan), use start_own_plan; never tell them they can't or that only the other host can. A finished or unrelated plan they were invited to is not a reason to refuse.
@@ -231,7 +232,7 @@ export class Agent {
       T('make_plan', 'Make this outing the plan (they said yes to it).', { event_id: eventId }, ['event_id']),
       T('invite', 'Invite friends the host named. Include a phone only if the host typed it; names in "Saved contacts" are texted automatically without a number.', { people: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, phone: { type: 'string' } }, required: ['name'] } } }, ['people']),
       T('add_stop', 'Add another stop to the itinerary.', { event_id: eventId }, ['event_id']),
-      ...(live ? [T('create_event', 'Create their OWN event (something they are organizing or doing that isn\'t a listing): a BBQ at their place, a picnic, game night, "pick up milk". Returns an event id; then use make_plan (no plan yet) or add_stop with it. Ask for the day/time only if they haven\'t given it and it matters.', {
+      ...(live ? [T('create_event', 'Create their OWN event (something they are organizing or doing that isn\'t a listing): a BBQ at their place, a picnic, game night, "pick up milk", or an event from a flyer or screenshot they texted. Returns an event id; then use make_plan (no plan yet) or add_stop with it. Ask for the day/time only if they haven\'t given it and it matters.', {
         title: { type: 'string', description: 'Short title, e.g. "BBQ at Jeff\'s"' }, date: { type: 'string', description: 'YYYY-MM-DD if known' }, time: { type: 'string', description: 'HH:MM 24h if known' },
         place: { type: 'string', description: 'Place name, e.g. "Jeff\'s place" or "Griffith Park"' }, address: { type: 'string', description: 'Street address or searchable place, if they gave one' },
         details: { type: 'string', description: 'One line of details (bring a dish, etc.)' }, category: { type: 'string', enum: ['dinner', 'nature', 'music', 'sports', 'arts', 'nightlife', 'event'] } }, ['title'])] : []),
@@ -494,7 +495,9 @@ export class Agent {
       if (m.role === 'user') {
         if (typeof m.content === 'string') { messages.push({ role: 'user', content: m.content }); continue; }
         for (const b of m.content) if (b.type === 'tool_result') messages.push({ role: 'tool', tool_call_id: b.tool_use_id, content: typeof b.content === 'string' ? b.content : JSON.stringify(b.content) });
-        const t = text(m.content); if (t) messages.push({ role: 'user', content: t });
+        const t = text(m.content), images = m.content.filter(b => b.type === 'image' && b.source?.type === 'base64').map(b => ({ type: 'image_url', image_url: { url: `data:${b.source.media_type};base64,${b.source.data}` } }));
+        if (images.length) messages.push({ role: 'user', content: [...images, ...(t ? [{ type: 'text', text: t }] : [])] }); // the backup sees texted photos too
+        else if (t) messages.push({ role: 'user', content: t });
       } else {
         const calls = (typeof m.content === 'string' ? [] : m.content).filter(b => b.type === 'tool_use').map(b => ({ id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.input || {}) } }));
         messages.push({ role: 'assistant', content: text(m.content) || null, ...(calls.length ? { tool_calls: calls } : {}) });
@@ -539,7 +542,22 @@ export class Agent {
       if (messages.at(-1)?.role === 'user') messages.at(-1).content += `\n\n${note}`; else messages.push({ role: 'user', content: note });
       (this.operatorFor ||= new Map()).set(phone, true);
     } else if (messages.at(-1)?.role !== 'user') messages.push({ role: 'user', content: `[${stamp(Date.now(), this.tzFor(phone))}] ${text}` });
+    // A photo in this text (a flyer, a screenshot of an event, a ticket): the AI sees the image itself this turn.
+    if (!operator && /\[sent a photo\]/.test(text || '')) {
+      const image = await this.photoBlock(phone).catch(e => { console.error('Photo for the agent:', e.message); return null; });
+      const last = messages.at(-1);
+      if (image && last?.role === 'user') last.content = [image, { type: 'text', text: typeof last.content === 'string' ? last.content : '' }];
+    }
     try { return await this.respondWith(phone, operator ? '' : text, messages); } finally { this.operatorFor?.delete(phone); }
+  }
+  // The photo they just texted, shrunk for the model (long side 1568 px, JPEG): flyers and screenshots stay readable.
+  async photoBlock(phone) {
+    const media = this.flow.sms.lastMedia?.get(phone);
+    if (!media?.url || Date.now() - media.at > 10 * 60000 || !this.flow.sms.photos) return null;
+    const raw = await this.flow.sms.photos.download(media, 12 * 1024 * 1024);
+    const sharp = (await import('sharp')).default;
+    const jpeg = await sharp(raw, { limitInputPixels: 50e6 }).rotate().resize(1568, 1568, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
+    return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: jpeg.toString('base64') } };
   }
   async respondWith(phone, text, messages) {
     // System prompt and tools are fixed for the whole reply (Claude's thinking is bound to them).
