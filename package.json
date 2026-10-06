@@ -21,6 +21,7 @@
     "jpeg-js": "^0.4.4",
     "lucide-react": "^0.468.0",
     "playwright-core": "1.63.0",
+    "postal-mime": "4.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sharp": "^0.34.5",

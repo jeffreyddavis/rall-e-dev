@@ -73,11 +73,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, url.pathname.endsWith('/inbound') ? sms.sendblueInbound(key, input) : sms.sendblueStatus(key, url.searchParams.get('log'), input));
     }
     if (url.pathname === '/api/inbound/email') {
-      // Postmark inbound (events@rall-e.ai): the webhook URL carries INBOUND_EMAIL_SECRET as basic auth. Answer at once;
-      // the newsletter is read in the background (server/newsletters.mjs).
+      // Inbound newsletters (events@rall-e.ai) from the Cloudflare Email Worker (raw message) or Postmark-style JSON, with
+      // INBOUND_EMAIL_SECRET as basic auth. Answered at once; read in the background (server/newsletters.mjs).
       if (req.method !== 'POST') fail(405, 'Method not allowed.');
       if (!sms.newsletters.authorized(req.headers.authorization)) fail(401, 'Not authorized.');
-      return json(res, 200, sms.newsletters.receive(await body(req, 15_000_000)));
+      const mail = await body(req, 15_000_000);
+      return json(res, 200, mail.raw ? await sms.newsletters.receiveRaw(mail) : sms.newsletters.receive(mail));
     }
     if (url.pathname === '/api/vapi/webhook') {
       if (req.method !== 'POST') fail(405, 'Method not allowed.');

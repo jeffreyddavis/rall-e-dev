@@ -1,6 +1,7 @@
-// Organizer newsletters (Marc #16): organizers email or forward their newsletters to events@rall-e.ai. Postmark receives
-// the mail and posts it here (POST /api/inbound/email, secret in the URL's basic auth). Claude reads the city and the
-// upcoming events out of it.
+// Organizer newsletters (Marc #16): organizers email or forward their newsletters to events@rall-e.ai. Cloudflare Email
+// Routing hands each one to a small Email Worker (ops/cloudflare-email-worker.js), which posts the raw message here
+// (POST /api/inbound/email, basic auth with INBOUND_EMAIL_SECRET); a Postmark-style JSON body works too. Claude reads
+// the city and the upcoming events out of it.
 //   - A sender the team hasn't approved: the newsletter becomes an Idea ("Newsletter from …: 6 events") in /ops.
 //     Approving it adds those events to the index and trusts the sender; declining blocks the sender.
 //   - An approved sender: its newsletters' events go straight into the index (curated_events), shown near that city.
@@ -29,7 +30,14 @@ export class Newsletters {
     const a = createHash('sha256').update(got).digest(), b = createHash('sha256').update(this.secret).digest();
     return timingSafeEqual(a, b);
   }
-  // Store the message and process it in the background (answer Postmark at once).
+  // From the Cloudflare Email Worker: { raw: base64 MIME, from, to } (the envelope). Parsed into the same fields.
+  async receiveRaw({ raw, from = '', to = '' }) {
+    const { default: PostalMime } = await import('postal-mime');
+    const m = await PostalMime.parse(Buffer.from(String(raw || ''), 'base64'));
+    return this.receive({ MessageID: m.messageId, From: m.from?.address || from, FromFull: { Email: m.from?.address || from, Name: m.from?.name || '' },
+      To: to, OriginalRecipient: to, ToFull: (m.to || []).map(x => ({ Email: x.address })), Subject: m.subject || '', TextBody: m.text || '', HtmlBody: m.html || '', Date: m.date });
+  }
+  // Store the message and process it in the background (answer the sender at once).
   receive(mail) {
     const id = clean(mail.MessageID || mail.MessageId || '', 120) || short(JSON.stringify([mail.From, mail.Subject, mail.Date]));
     if (this.db.prepare('SELECT 1 FROM inbound_emails WHERE id=?').get(id)) return { duplicate: true };

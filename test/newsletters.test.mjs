@@ -47,3 +47,27 @@ test('declining a newsletter blocks the sender', async () => {
   assert.equal(calls(), 1); // never read again
   store.close();
 });
+
+test('the Cloudflare Email Worker hands a raw newsletter to Rall-e, which parses and reads it', async () => {
+  const { store, sms } = setup(), n = sms.newsletters;
+  const mime = ['From: Echo Park Run Club <hello@echoparkrun.example>', 'To: events@rall-e.ai', 'Subject: This month at EPRC', 'Message-ID: <abc123@echoparkrun.example>',
+    'MIME-Version: 1.0', 'Content-Type: text/plain; charset=utf-8', '', 'Join our Saturday run at Griffith Park, 7 AM, free. '.repeat(6)].join('\r\n');
+  const { default: worker } = await import('../ops/cloudflare-email-worker.js');
+  let posted, rejected = null;
+  const message = { from: 'hello@echoparkrun.example', to: 'events@rall-e.ai', raw: new Response(mime).body, setReject: why => { rejected = why; } };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { posted = { url, init }; // the Worker's request, answered by Rall-e's own code
+    if (!n.authorized(init.headers.authorization)) return new Response('no', { status: 401 });
+    return new Response(JSON.stringify(await n.receiveRaw(JSON.parse(init.body))), { status: 200 }); };
+  try { await worker.email(message, { RALLE_URL: 'https://rall-e.ai/api/inbound/email', INBOUND_SECRET: SECRET }); } finally { globalThis.fetch = realFetch; }
+  assert.equal(rejected, null); assert.equal(posted.url, 'https://rall-e.ai/api/inbound/email');
+  await n.chain;
+  const got = n.recent()[0]; assert.deepEqual([got.sender, got.name, got.subject, got.found], ['hello@echoparkrun.example', 'Echo Park Run Club', 'This month at EPRC', 2]);
+  assert.match(sms.ideas.list().find(i => i.kind === 'newsletter').title, /Echo Park Run Club: 2 upcoming events/);
+  // A wrong secret bounces the email back to the sender.
+  message.raw = new Response(mime).body;
+  globalThis.fetch = async () => new Response('no', { status: 401 });
+  try { await worker.email(message, { RALLE_URL: 'https://rall-e.ai/api/inbound/email', INBOUND_SECRET: 'wrong' }); } finally { globalThis.fetch = realFetch; }
+  assert.match(rejected, /could not take this message \(401\)/);
+  store.close();
+});
