@@ -193,7 +193,7 @@ test('sites that forbid bots (Bookeo, DICE, Resident Advisor) are never read, ad
 
 test('Try to fix says what it is doing, and each run records an outcome /ops can explain', async () => {
   const store = new Store(':memory:');
-  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', SOURCE_DEBUG_DAILY: '2' }, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', SOURCE_DEBUG_DAILY: '1', SOURCE_DEBUG_MANUAL: '2' }, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
   const add = id => store.db.prepare('INSERT INTO event_sources (id, url, name, city, created, found, debug_tries) VALUES (?,?,?,?,?,0,2)').run(id, `https://${id}.example/`, id, 'LA', 1);
   add('escape'); add('other'); add('third');
   sms.sources.refresh = async () => ({}); // only the debugging outcome matters here
@@ -201,11 +201,15 @@ test('Try to fix says what it is doing, and each run records an outcome /ops can
   sms.flow.agent.key = 'k';
   const outcomes = { escape: { note: 'Its schedule is a Bookeo widget; Bookeo forbids bots.', cause: 'forbidden_site' }, other: { saved: true, note: 'Events come from /api/events.json.' } };
   sms.sources.debugger = { run: async id => outcomes[id] };
+  // Background runs use up their own allowance, never the button's.
+  store.db.prepare("INSERT INTO source_debug_runs (source, at, manual) VALUES ('x', ?, 0)").run(Date.now() - 3600000);
+  assert.equal(sms.sources.debugLater('escape', { force: true }), false);
+  assert.match(sms.sources.debugBlocker({ id: 'escape', url: 'https://e.example/' }, true), /automatic checks used their 1 for the last 24 hours \(more in about 23 hours\)/);
   const first = sms.sources.tryToFix('escape');
-  assert.deepEqual(first, { queued: true, message: 'Trying now. It takes about a minute.' });
+  assert.deepEqual(first, { queued: true, message: 'Trying now. It takes about a minute. (1 Try to fix left in the last 24 hours.)' });
   assert.match(sms.sources.tryToFix('escape').message, /already being checked/);
   assert.match(sms.sources.tryToFix('other').message, /Queued behind 1 other check/);
-  assert.match(sms.sources.tryToFix('third').message, /Today's 2 checks are used up/);
+  assert.match(sms.sources.tryToFix('third').message, /Try to fix has been used 2 times in the last 24 hours. Another one frees up in about 24 hours./);
   await sms.sources.debugChain;
   const row = id => sms.sources.list().find(s => s.id === id);
   assert.equal(row('escape').debug_cause, 'forbidden_site'); assert.match(row('escape').debug_note, /Bookeo/); assert.ok(row('escape').debug_done > 0); assert.equal(row('escape').debugging, false);

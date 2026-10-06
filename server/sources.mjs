@@ -126,7 +126,9 @@ export class Sources {
       CREATE INDEX IF NOT EXISTS curated_events_day ON curated_events(day);`);
     for (const col of ['text_hash TEXT', 'rule TEXT', 'debug_tries INTEGER NOT NULL DEFAULT 0', 'debug_note TEXT', 'debug_at INTEGER', 'debug_browser INTEGER NOT NULL DEFAULT 0', 'debug_cause TEXT', 'debug_done INTEGER']) try { this.db.exec(`ALTER TABLE event_sources ADD COLUMN ${col}`); } catch {}
     this.db.exec('CREATE TABLE IF NOT EXISTS source_debug_runs (source TEXT NOT NULL, at INTEGER NOT NULL)');
-    this.debugQueue = new Set(); this.debugChain = Promise.resolve(); this.debugDaily = Number(env.SOURCE_DEBUG_DAILY || 40);
+    try { this.db.exec('ALTER TABLE source_debug_runs ADD COLUMN manual INTEGER NOT NULL DEFAULT 0'); } catch {}
+    this.debugQueue = new Set(); this.debugChain = Promise.resolve();
+    this.debugDaily = Number(env.SOURCE_DEBUG_DAILY || 40); this.debugManual = Number(env.SOURCE_DEBUG_MANUAL || 30);
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
   }
   get discovery() { return this.sms.discovery; }
@@ -288,29 +290,41 @@ export class Sources {
     return Boolean(r?.ok);
   }
   saveRule(id, rule, note) { this.db.prepare('UPDATE event_sources SET rule=?, debug_note=? WHERE id=?').run(JSON.stringify(rule), String(note || '').slice(0, 300), id); }
-  // Queue one debugging run (server/sourcedebug.mjs), at most twice per source unless someone asks again in /ops.
+  // Debugging runs use Opus, so they're capped per rolling 24 hours, separately for automatic runs (after a refresh,
+  // at startup) and Try to fix clicks, so background runs can never use up the button.
+  runs(manual) {
+    const rows = this.db.prepare('SELECT at FROM source_debug_runs WHERE at>? AND manual=? ORDER BY at').all(Date.now() - DAY, manual ? 1 : 0);
+    const cap = manual ? this.debugManual : this.debugDaily;
+    return { used: rows.length, cap, left: Math.max(0, cap - rows.length), freesAt: rows.length ? rows[0].at + DAY : null };
+  }
   // Why a debugging run can't start now, in words for /ops (null when it can).
-  debugBlocker(src, force = false) {
+  debugBlocker(src, force = false, manual = false) {
     if (!src || src.url.startsWith('rall-e:')) return 'There is nothing to check for this source.';
     if (this.debugQueue.has(src.id)) return 'It is already being checked.';
     if (!this.debugger || !this.sms.flow?.agent?.key) return 'The AI isn\x27t set up on this server.';
     if (!force && src.debug_tries >= 2) return 'It was already checked twice.';
-    if (this.db.prepare('SELECT COUNT(*) AS n FROM source_debug_runs WHERE at>?').get(Date.now() - DAY).n >= this.debugDaily) return `Today's ${this.debugDaily} checks are used up. Try again tomorrow.`;
+    const r = this.runs(manual);
+    if (!r.left) {
+      const mins = Math.max(1, Math.round((r.freesAt - Date.now()) / 60000)), when = mins < 90 ? `${mins} minutes` : `${Math.round(mins / 60)} hours`;
+      return manual ? `Try to fix has been used ${r.cap} times in the last 24 hours. Another one frees up in about ${when}.`
+        : `The automatic checks used their ${r.cap} for the last 24 hours (more in about ${when}).`;
+    }
     return null;
   }
   // The Try to fix button: start a run now (or queue it) and say what happened.
   tryToFix(id) {
-    const why = this.debugBlocker(this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id), true);
+    const why = this.debugBlocker(this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id), true, true);
     if (why) return { queued: false, message: why };
-    this.debugLater(id, { force: true });
-    const ahead = this.debugQueue.size - 1;
-    return { queued: true, message: ahead ? `Queued behind ${ahead} other check${ahead > 1 ? 's' : ''}.` : 'Trying now. It takes about a minute.' };
+    this.debugLater(id, { force: true, manual: true });
+    const ahead = this.debugQueue.size - 1, left = this.runs(true).left;
+    return { queued: true, message: `${ahead ? `Queued behind ${ahead} other check${ahead > 1 ? 's' : ''}.` : 'Trying now. It takes about a minute.'} (${left} Try to fix left in the last 24 hours.)` };
   }
-  debugLater(id, { force = false } = {}) {
+  // Queue one debugging run (server/sourcedebug.mjs), at most twice per source unless forced (Try to fix, browser re-run).
+  debugLater(id, { force = false, manual = false } = {}) {
     const src = this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id);
-    if (this.debugBlocker(src, force)) return false;
+    if (this.debugBlocker(src, force, manual)) return false;
     this.db.prepare('UPDATE event_sources SET debug_tries=?, debug_at=? WHERE id=?').run(force ? 1 : src.debug_tries + 1, Date.now(), id);
-    this.db.prepare('INSERT INTO source_debug_runs VALUES (?, ?)').run(id, Date.now());
+    this.db.prepare('INSERT INTO source_debug_runs (source, at, manual) VALUES (?, ?, ?)').run(id, Date.now(), manual ? 1 : 0);
     this.debugQueue.add(id);
     this.debugChain = this.debugChain.then(async () => {
       try {
