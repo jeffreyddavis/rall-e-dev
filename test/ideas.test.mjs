@@ -88,3 +88,19 @@ test('"where do my friends go in Providence?": friends\' picks near a city, a 30
   assert.match(await sms.flow.agent.run(C, 'friends_places', { city: 'Providence, RI' }, { t: null }, 'x'), /None of their friends/);
   store.close();
 });
+
+test('a public event from a texted flyer goes to Ideas; approving it puts it in the event index', async () => {
+  const { store, sms } = setup(), date = new Date(Date.now() + 9 * 86400000).toISOString().slice(0, 10);
+  sms.discovery.customEvent = async (phone, input) => ({ id: 'cu_x', short: input.title, venue: input.place, time: 'Sat 6 PM' });
+  sms.discovery.location = () => ({ lat: 41.82, lng: -71.41, label: 'Providence, RI' });
+  const agent = sms.flow.agent;
+  await agent.run(A, 'create_event', { title: 'Night Market', date, time: '18:00', place: 'Kennedy Plaza', price: 'Free', details: 'Street food and DJs', public_flyer: true }, { t: null }, '[sent a photo]');
+  await agent.run(A, 'create_event', { title: 'Our BBQ', date, place: 'my place' }, { t: null }, 'bbq at mine'); // private: not suggested
+  const flyers = sms.ideas.list().filter(i => i.kind === 'event');
+  assert.equal(flyers.length, 1); assert.equal(flyers[0].city, 'Providence, RI'); assert.deepEqual([flyers[0].event.date, flyers[0].event.place, flyers[0].event.price], [date, 'Kennedy Plaza', 'Free']);
+  const { result } = await sms.ideas.update(flyers[0].id, { status: 'approved' });
+  assert.match(result, /Added to the event index/);
+  const hit = sms.sources.manualEvents().find(e => e.title === 'Night Market');
+  assert.equal(hit.date, date); assert.match(hit.time, /6:00 PM/); assert.equal(hit.venue, 'Kennedy Plaza');
+  store.close();
+});
