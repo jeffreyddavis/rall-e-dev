@@ -105,7 +105,7 @@ export class SourceDebugger {
       { name: 'find', description: 'GET a public URL (often a big script) and show the text around each place a string appears.', input_schema: { type: 'object', properties: { url: { type: 'string' }, text: { type: 'string' } }, required: ['url', 'text'] } },
       { name: 'test_rule', description: 'Run a rule and see how many upcoming events it reads, with samples.', input_schema: { type: 'object', properties: { rule }, required: ['rule'] } },
       { name: 'save_rule', description: 'Save a rule that reads at least 2 upcoming events. Ends the session.', input_schema: { type: 'object', properties: { rule, note: { type: 'string', description: 'One sentence for the team: what was wrong and where the events come from' } }, required: ['rule', 'note'] } },
-      { name: 'give_up', description: 'No rule possible. Ends the session.', input_schema: { type: 'object', properties: { reason: { type: 'string' } }, required: ['reason'] } }];
+      { name: 'give_up', description: 'No rule possible. Ends the session.', input_schema: { type: 'object', properties: { cause: { type: 'string', enum: ['forbidden_site', 'robots', 'login', 'no_upcoming', 'cant_find'], description: 'forbidden_site: events only come from a site that forbids bots (Bookeo, DICE, RA); robots: robots.txt; login: behind a login; no_upcoming: the source really lists no future events; cant_find: no way found' }, reason: { type: 'string', description: 'One or two plain sentences for a teammate: what you found and why it can\x27t be read' } }, required: ['cause', 'reason'] } }];
     const state = { fetches: 0 }, messages = [{ role: 'user', content: `Source "${src.name}" in ${src.city}: ${src.url}\nOur reader found ${src.found} upcoming event(s)${src.error ? ` (${src.error})` : ''}${src.kind ? `, reading it as: ${src.kind}` : ''}.${src.rule ? ` Its current saved rule: ${src.rule}` : ''}\nToday is ${new Date().toISOString().slice(0, 10)}. ${browser ? 'The render tool (a real browser) is available. ' : 'No browser here: rule type "browser" is unavailable. '}Start by inspecting the page.` }];
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const r = await agent.fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(180000), headers: agent.claudeHeaders(),
@@ -120,7 +120,7 @@ export class SourceDebugger {
       for (const u of uses) {
         let out;
         try {
-          if (u.name === 'give_up') return { note: String(u.input.reason || 'No way to read its events found.') };
+          if (u.name === 'give_up') return { note: String(u.input.reason || 'No way to read its events found.'), cause: ['forbidden_site', 'robots', 'login', 'no_upcoming', 'cant_find'].includes(u.input.cause) ? u.input.cause : 'cant_find' };
           if (u.name === 'inspect') out = await this.inspect(ruleUrl(u.input.url, src.url), state);
           else if (u.name === 'render') out = await this.renderPage(ruleUrl(u.input.url, src.url), state);
           else if (u.name === 'find') out = await this.find(ruleUrl(u.input.url, src.url), String(u.input.text || ''), state);

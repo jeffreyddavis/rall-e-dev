@@ -112,4 +112,9 @@
 .rel-list p{margin:0;font-size:15px;line-height:1.4}.rel-list small{color:#8a979d;font-size:12px}
 .rel-list .button{align-self:flex-start;display:inline-flex;align-items:center;gap:6px}
 .rel-team{font-style:normal;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8eefc;color:#2c4fa0;margin-right:8px}
-.src-debug{display:block;color:#2c4fa0;font-size:12px;margin-top:4px}.src-fix{margin-top:4px;font-size:12px}
+.src-fix{margin-top:4px;font-size:12px}
+.src-why{display:flex;flex-direction:column;gap:3px;margin-top:6px;padding:8px 10px;border-radius:10px;font-size:12px;line-height:1.4;background:#f3f6f8;color:#3d4c55}
+.src-why strong{font-size:13px}.src-why em{font-style:normal;color:#5c6d76}
+.src-why.ok{background:#e3f4ea;color:#23764a}.src-why.warn{background:#fff4dc;color:#7a5200}.src-why.bad{background:#ffe9e5;color:#8f1d12}.src-why.bad span,.src-why.warn span{color:#3d4c55}
+.src-why.trying{flex-direction:row;align-items:center;gap:6px;background:#e8eefc;color:#2c4fa0}
+.src-report{display:block;margin-top:4px;font-size:12px;color:#2c4fa0;font-weight:600}

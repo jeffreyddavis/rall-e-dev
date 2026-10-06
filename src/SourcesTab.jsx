@@ -4,11 +4,42 @@ import { SOURCE_NOTES } from './sourceNotes.js';
 
 // Both dashboard keys: curated event sources per city (calendar feeds and event pages). See docs/DATA_SOURCES.md.
 // A source showing 0 or 1 events gets a debugging run (server/sourcedebug.mjs) that saves a rule for reading it.
+const NEXT = 'Next: ask the venue for a calendar feed or events page, or add its events by hand below.';
+// The problem in plain words: what the last check found, not just "no events".
+function explain(s) {
+  const detail = s.debug_note || '';
+  if (s.debug_cause === 'fixed' && s.found > 1) return { tone: 'ok', headline: `Fixed: now reading ${s.found} events (${s.rule || 'saved rule'}).`, detail };
+  if (s.debug_cause === 'forbidden_site' || /forbids automated access/.test(s.error || '')) return { tone: 'bad', headline: 'Can\'t read: its events come from a site that forbids bots (Bookeo, DICE or Resident Advisor).', detail, next: NEXT };
+  if (s.debug_cause === 'robots' || /robots\.txt/.test(s.error || '')) return { tone: 'bad', headline: 'Can\'t read: the site asks bots not to read it.', detail, next: NEXT };
+  if (s.debug_cause === 'login') return { tone: 'bad', headline: 'Can\'t read: its events are behind a login.', detail, next: NEXT };
+  if (s.debug_cause === 'no_upcoming') return { tone: 'warn', headline: 'Nothing upcoming: the page lists no future events right now.', detail };
+  if (s.debug_cause) return { tone: 'bad', headline: 'Couldn\'t find a way to read its events.', detail, next: NEXT };
+  if (s.found <= 1 && detail) return { tone: 'warn', headline: 'Checked earlier:', detail }; // from before causes were recorded
+  return null;
+}
 export default function SourcesTab({ call, ago }) {
   const [manual, setManual] = useState([]), [ev, setEv] = useState({ title: '', date: '', time: '', venue: '', city: '', price: '', url: '' }),
     [sources, setSources] = useState(null), [url, setUrl] = useState(''), [city, setCity] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(''), [error, setError] = useState('');
   const run = async (what, fn) => { setBusy(what); setError(''); try { const d = await fn(); setSources(d.sources); setManual(d.manual || []); } catch (e) { setError(e.message); } finally { setBusy(''); } };
   useEffect(() => { run('load', () => call('sources')); }, []);
+  // Try to fix: the row says "Trying…" at once, the list refreshes every few seconds while checks run, then the row
+  // shows what happened. fixing[id] = { since, message, report }.
+  const [fixing, setFixing] = useState({});
+  const tryFix = async s => {
+    setFixing(f => ({ ...f, [s.id]: { since: Date.now(), message: 'Starting…' } }));
+    try { const d = await call('sources/debug', { id: s.id }); setSources(d.sources); setFixing(f => ({ ...f, [s.id]: { ...f[s.id], message: d.result.message, report: d.result.queued ? null : d.result.message } })); }
+    catch (e) { setFixing(f => ({ ...f, [s.id]: { ...f[s.id], report: e.message } })); }
+  };
+  const waiting = (sources || []).some(s => s.debugging) || Object.values(fixing).some(f => !f.report);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => call('sources').then(d => {
+      setSources(d.sources);
+      setFixing(f => Object.fromEntries(Object.entries(f).map(([id, x]) => { const s = d.sources.find(y => y.id === id);
+        return [id, !x.report && s && !s.debugging && s.debug_done >= x.since - 5000 ? { ...x, report: explain(s)?.headline || `Done: ${s.found} events.` } : x]; })));
+    }).catch(() => {}), 4000);
+    return () => clearInterval(t);
+  }, [waiting]);
   return <section className="ops-usage ops-sources">
     <div className="ops-usage-head"><h2>Event sources</h2><span>Calendar feeds and event pages Rall-e checks every 12 hours</span></div>
     <form className="src-add" onSubmit={e => { e.preventDefault(); run('add', () => call('sources', { url, city, name })).then(() => { setUrl(''); setName(''); }); }}>
@@ -41,10 +72,17 @@ export default function SourcesTab({ call, ago }) {
     </details>
     {!sources ? <p className="ins-empty">Loading…</p> : !sources.length ? <p className="ins-empty">No sources yet. Add a Luma or Meetup calendar feed, a venue’s calendar, or a city events page.</p> :
       <table className="src-table"><thead><tr><th>Source</th><th>City</th><th>Events</th><th>Checked</th><th/></tr></thead><tbody>{sources.map(s => <tr key={s.id}>
-        <td><strong>{s.name}</strong><a href={s.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={12}/>{s.kind || 'link'}</a>{s.error && <small className="src-error">{s.error}</small>}
-          {s.debugging ? <small className="src-debug">Working out how to read this page…</small>
-            : s.debug_note && <small className="src-debug">{s.rule ? 'Fixed: ' : 'Checked: '}{s.debug_note}</small>}
-          {!s.debugging && s.found <= 1 && <button className="ops-link src-fix" disabled={!!busy} onClick={() => run(`fix${s.id}`, () => call('sources/debug', { id: s.id }))}><Wand2 size={13}/>Try to fix</button>}</td>
+        <td><strong>{s.name}</strong><a href={s.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={12}/>{s.kind || 'link'}</a>
+          {(() => {
+            const x = explain(s), f = fixing[s.id], trying = s.debugging || (f && !f.report);
+            return <>
+              {trying ? <small className="src-why trying"><RefreshCw size={12} className="spin"/>Trying to fix… {f?.message && f.message !== 'Starting…' ? f.message : 'It takes about a minute.'}</small>
+                : x ? <div className={`src-why ${x.tone}`}><strong>{x.headline}</strong>{x.detail && <span>{x.detail}</span>}{x.next && <em>{x.next}</em>}</div>
+                : s.error && <small className="src-error">{s.error}</small>}
+              {f?.report && !trying && <small className="src-report">Just now: {f.report}</small>}
+              {!trying && s.found <= 1 && <button className="ops-link src-fix" onClick={() => tryFix(s)}><Wand2 size={13}/>{s.debug_cause ? 'Try again' : 'Try to fix'}</button>}
+            </>;
+          })()}</td>
         <td>{s.city}</td><td>{s.found}</td><td>{s.fetched ? ago(s.fetched) : '—'}</td>
         <td className="src-actions"><button className="ops-link" disabled={!!busy} onClick={() => run(s.id, () => call('sources/refresh', { id: s.id }))} aria-label={`Check ${s.name} now`}><RefreshCw size={14} className={busy === s.id ? 'spin' : ''}/></button>
           <button className="ops-link" disabled={!!busy} onClick={() => run(s.id, () => call('sources/remove', { id: s.id }))} aria-label={`Remove ${s.name}`}><Trash2 size={14}/></button></td>

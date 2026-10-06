@@ -190,3 +190,25 @@ test('sites that forbid bots (Bookeo, DICE, Resident Advisor) are never read, ad
   assert.ok(!seen.some(u => /bookeo|dice\.fm/.test(u)), 'nothing was fetched from those sites');
   store.close();
 });
+
+test('Try to fix says what it is doing, and each run records an outcome /ops can explain', async () => {
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', SOURCE_DEBUG_DAILY: '2' }, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
+  const add = id => store.db.prepare('INSERT INTO event_sources (id, url, name, city, created, found, debug_tries) VALUES (?,?,?,?,?,0,2)').run(id, `https://${id}.example/`, id, 'LA', 1);
+  add('escape'); add('other'); add('third');
+  sms.sources.refresh = async () => ({}); // only the debugging outcome matters here
+  assert.match(sms.sources.tryToFix('escape').message, /AI isn't set up/); // no AI key yet
+  sms.flow.agent.key = 'k';
+  const outcomes = { escape: { note: 'Its schedule is a Bookeo widget; Bookeo forbids bots.', cause: 'forbidden_site' }, other: { saved: true, note: 'Events come from /api/events.json.' } };
+  sms.sources.debugger = { run: async id => outcomes[id] };
+  const first = sms.sources.tryToFix('escape');
+  assert.deepEqual(first, { queued: true, message: 'Trying now. It takes about a minute.' });
+  assert.match(sms.sources.tryToFix('escape').message, /already being checked/);
+  assert.match(sms.sources.tryToFix('other').message, /Queued behind 1 other check/);
+  assert.match(sms.sources.tryToFix('third').message, /Today's 2 checks are used up/);
+  await sms.sources.debugChain;
+  const row = id => sms.sources.list().find(s => s.id === id);
+  assert.equal(row('escape').debug_cause, 'forbidden_site'); assert.match(row('escape').debug_note, /Bookeo/); assert.ok(row('escape').debug_done > 0); assert.equal(row('escape').debugging, false);
+  assert.equal(row('other').debug_cause, 'fixed');
+  store.close();
+});

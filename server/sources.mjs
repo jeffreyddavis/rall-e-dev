@@ -121,14 +121,14 @@ export class Sources {
         created INTEGER NOT NULL, fetched INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT, active INTEGER NOT NULL DEFAULT 1);
       CREATE TABLE IF NOT EXISTS curated_events (id TEXT PRIMARY KEY, source TEXT NOT NULL, day TEXT NOT NULL, lat REAL, lng REAL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS curated_events_day ON curated_events(day);`);
-    for (const col of ['text_hash TEXT', 'rule TEXT', 'debug_tries INTEGER NOT NULL DEFAULT 0', 'debug_note TEXT', 'debug_at INTEGER', 'debug_browser INTEGER NOT NULL DEFAULT 0']) try { this.db.exec(`ALTER TABLE event_sources ADD COLUMN ${col}`); } catch {}
+    for (const col of ['text_hash TEXT', 'rule TEXT', 'debug_tries INTEGER NOT NULL DEFAULT 0', 'debug_note TEXT', 'debug_at INTEGER', 'debug_browser INTEGER NOT NULL DEFAULT 0', 'debug_cause TEXT', 'debug_done INTEGER']) try { this.db.exec(`ALTER TABLE event_sources ADD COLUMN ${col}`); } catch {}
     this.db.exec('CREATE TABLE IF NOT EXISTS source_debug_runs (source TEXT NOT NULL, at INTEGER NOT NULL)');
     this.debugQueue = new Set(); this.debugChain = Promise.resolve(); this.debugDaily = Number(env.SOURCE_DEBUG_DAILY || 40);
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
   }
   get discovery() { return this.sms.discovery; }
   list() {
-    return this.db.prepare("SELECT id, url, name, city, kind, created, fetched, found, error, active, rule, debug_tries, debug_note, debug_at FROM event_sources WHERE url NOT LIKE 'rall-e:%' ORDER BY created DESC").all()
+    return this.db.prepare("SELECT id, url, name, city, kind, created, fetched, found, error, active, rule, debug_tries, debug_note, debug_at, debug_cause, debug_done FROM event_sources WHERE url NOT LIKE 'rall-e:%' ORDER BY created DESC").all()
       .map(({ rule, ...s }) => ({ ...s, rule: rule ? RULE_TYPES[JSON.parse(rule).type] || 'rule' : null, debugging: this.debugQueue.has(s.id) }));
   }
   async add({ url, city, name = '' }) {
@@ -183,7 +183,7 @@ export class Sources {
     const done = (found, kind, error = null) => {
       this.db.prepare('UPDATE event_sources SET fetched=?, found=?, kind=COALESCE(?, kind), error=? WHERE id=?').run(Date.now(), found, kind, error, id);
       // People add sources that have events, so 0 or 1 almost always means we read it wrong: work out how, once or twice.
-      if (debug && found <= 1 && !/robots\.txt/.test(error || '')) this.debugLater(id);
+      if (debug && found <= 1 && !/robots\.txt|forbids automated access/.test(error || '')) this.debugLater(id);
       return { found, error };
     };
     try {
@@ -277,20 +277,36 @@ export class Sources {
   }
   saveRule(id, rule, note) { this.db.prepare('UPDATE event_sources SET rule=?, debug_note=? WHERE id=?').run(JSON.stringify(rule), String(note || '').slice(0, 300), id); }
   // Queue one debugging run (server/sourcedebug.mjs), at most twice per source unless someone asks again in /ops.
+  // Why a debugging run can't start now, in words for /ops (null when it can).
+  debugBlocker(src, force = false) {
+    if (!src || src.url.startsWith('rall-e:')) return 'There is nothing to check for this source.';
+    if (this.debugQueue.has(src.id)) return 'It is already being checked.';
+    if (!this.debugger || !this.sms.flow?.agent?.key) return 'The AI isn\x27t set up on this server.';
+    if (!force && src.debug_tries >= 2) return 'It was already checked twice.';
+    if (this.db.prepare('SELECT COUNT(*) AS n FROM source_debug_runs WHERE at>?').get(Date.now() - DAY).n >= this.debugDaily) return `Today's ${this.debugDaily} checks are used up. Try again tomorrow.`;
+    return null;
+  }
+  // The Try to fix button: start a run now (or queue it) and say what happened.
+  tryToFix(id) {
+    const why = this.debugBlocker(this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id), true);
+    if (why) return { queued: false, message: why };
+    this.debugLater(id, { force: true });
+    const ahead = this.debugQueue.size - 1;
+    return { queued: true, message: ahead ? `Queued behind ${ahead} other check${ahead > 1 ? 's' : ''}.` : 'Trying now. It takes about a minute.' };
+  }
   debugLater(id, { force = false } = {}) {
     const src = this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id);
-    if (!src || src.url.startsWith('rall-e:') || this.debugQueue.has(id) || !this.debugger || !this.sms.flow?.agent?.key) return false;
-    if (!force && src.debug_tries >= 2) return false;
-    if (this.db.prepare('SELECT COUNT(*) AS n FROM source_debug_runs WHERE at>?').get(Date.now() - DAY).n >= this.debugDaily) return false;
+    if (this.debugBlocker(src, force)) return false;
     this.db.prepare('UPDATE event_sources SET debug_tries=?, debug_at=? WHERE id=?').run(force ? 1 : src.debug_tries + 1, Date.now(), id);
     this.db.prepare('INSERT INTO source_debug_runs VALUES (?, ?)').run(id, Date.now());
     this.debugQueue.add(id);
     this.debugChain = this.debugChain.then(async () => {
       try {
-        const result = await this.debugger.run(id).catch(e => ({ note: `The check failed: ${String(e.message).slice(0, 120)}` }));
-        if (!result?.saved) this.db.prepare('UPDATE event_sources SET debug_note=? WHERE id=?').run(String(result?.note || 'No way to read its events found.').slice(0, 300), id);
-        this.debugQueue.delete(id); // before the refresh, so /ops shows the result as soon as it's in
+        const result = await this.debugger.run(id).catch(e => ({ note: `The check failed: ${String(e.message).slice(0, 120)}`, cause: 'error' }));
         if (result?.saved) await this.refresh(id, { debug: false }).catch(() => {});
+        else this.db.prepare('UPDATE event_sources SET debug_note=? WHERE id=?').run(String(result?.note || 'No way to read its events found.').slice(0, 300), id);
+        // What /ops reports: fixed, or why not (forbidden_site, robots, login, no_upcoming, cant_find, error).
+        this.db.prepare('UPDATE event_sources SET debug_cause=?, debug_done=? WHERE id=?').run(result?.saved ? 'fixed' : result?.cause || 'cant_find', Date.now(), id);
       } catch (e) { console.error('Source debug:', e.message); } finally { this.debugQueue.delete(id); }
     });
     return true;
@@ -402,7 +418,7 @@ export class Sources {
   }
   async sweepDebug() {
     const browser = await this.renderAvailable();
-    for (const s of this.db.prepare("SELECT id, debug_tries, debug_browser FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND found<=1 AND (error IS NULL OR error NOT LIKE '%robots.txt%')").all()) {
+    for (const s of this.db.prepare("SELECT id, debug_tries, debug_browser FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND found<=1 AND (error IS NULL OR (error NOT LIKE '%robots.txt%' AND error NOT LIKE '%forbids automated access%'))").all()) {
       if (s.debug_tries < 2) this.debugLater(s.id); else if (browser && !s.debug_browser) this.debugLater(s.id, { force: true });
     }
   }
