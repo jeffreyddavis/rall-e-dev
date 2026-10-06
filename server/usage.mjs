@@ -7,6 +7,8 @@ import { freemem, totalmem, uptime } from 'node:os';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const month = () => new Date().toISOString().slice(0, 7);
+// "jambase=2026-12-31, vapi=2027-01-15" → Map(id → YYYY-MM-DD); anything malformed is skipped.
+export const parseTrials = v => new Map(String(v || '').split(/[,;]/).map(x => x.trim().split('=').map(y => y.trim())).filter(([id, d]) => id && /^\d{4}-\d{2}-\d{2}$/.test(d || '')).map(([id, d]) => [id.toLowerCase(), d]));
 const level = (used, limit) => !limit ? 'ok' : used / limit >= 0.9 ? 'critical' : used / limit >= 0.75 ? 'warn' : 'ok';
 const PROVIDERS = { 'app.ticketmaster.com': 'ticketmaster', 'api.seatgeek.com': 'seatgeek', 'maps.googleapis.com': 'google', 'places.googleapis.com': 'google', 'routes.googleapis.com': 'google', 'serpapi.com': 'serpapi', 'data.tmsapi.com': 'gracenote', 'api.weather.gov': 'weather', 'api.data.jambase.com': 'jambase', 'demo.tmsimg.com': 'gracenote' };
 const skuOf = url => {
@@ -106,9 +108,11 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
       link: 'https://serpapi.com/manage-api-key' });
   }
   // JamBase (live music)
+  let jambaseTrial = null;
   if (env.JAMBASE_KEY) {
     const q = await safe(() => get('https://api.data.jambase.com/v3/quota', { headers: { Authorization: `Bearer ${env.JAMBASE_KEY}` } }));
     const used = q.usedCalls ?? 0, limit = q.quota ?? 0;
+    if (/trial/i.test(q.plan || '') && /^\d{4}-\d{2}-\d{2}/.test(String(q.periodEnd || ''))) jambaseTrial = String(q.periodEnd).slice(0, 10);
     cards.push({ id: 'jambase', name: 'JamBase (live music)', status: q.error ? 'unknown' : level(used, limit), meter: q.error ? null : { used, limit, unit: 'calls this period' },
       facts: [q.error ? `Quota check failed: ${q.error}` : `${q.remainingCalls ?? limit - used} calls left (${q.plan || 'plan'}${q.periodEnd ? `, resets ${String(q.periodEnd).slice(0, 10)}` : ''}${q.blocksAtQuota ? ', hard stop at the limit' : ''})`, 'Used for live-music searches; cached 6 hours per area and dates.', 'Developer plan is free for non-commercial use (attribution required); Startup is $500/mo.'],
       link: 'https://data.jambase.com/' });
@@ -138,5 +142,20 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
   cards.push({ id: 'server', name: 'Server (rall-e.ai)', status: disk ? level(disk.total - disk.free, disk.total) : 'ok', meter: disk ? { used: Math.round((disk.total - disk.free) / 1e9 * 10) / 10, limit: Math.round(disk.total / 1e9 * 10) / 10, unit: 'GB disk used' } : null,
     facts: [`Memory free: ${Math.round(freemem() / 1e6)} MB of ${Math.round(totalmem() / 1e6)} MB`, `Up ${Math.round(uptime() / 3600)} hours`] });
   const rank = { critical: 0, warn: 1, unknown: 2, ok: 3, off: 4 };
+  // Trials: when each service's free trial ends. SERVICE_TRIALS in .env ("jambase=2026-12-31, vapi=2027-01-15", ids as
+  // on the cards; editable without code). JamBase's quota check adds its own trial end when it reports one.
+  const trials = parseTrials(env.SERVICE_TRIALS);
+  if (jambaseTrial && !trials.has('jambase')) trials.set('jambase', jambaseTrial);
+  if (trials.size) {
+    const rows = [...trials].map(([id, end]) => {
+      const days = Math.round((Date.parse(`${end}T12:00:00Z`) - Date.parse(`${today()}T12:00:00Z`)) / 86400000), when = new Date(`${end}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      const status = days <= 2 ? 'critical' : days <= 7 ? 'warn' : 'ok', card = cards.find(c => c.id === id);
+      const line = days < 0 ? `Trial ended ${when}` : `Trial ends ${when} (${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`})`;
+      if (card) { card.facts = [line, ...(card.facts || [])]; if (rank[status] < rank[card.status]) card.status = status; }
+      return { name: card?.name.split(' (')[0] || id, line, status, days };
+    }).sort((a, b) => a.days - b.days);
+    cards.push({ id: 'trials', name: 'Trials', status: rows.reduce((s, r) => rank[r.status] < rank[s] ? r.status : s, 'ok'), meter: null,
+      facts: [...rows.map(r => `${r.name}: ${r.line}`), 'Dates come from SERVICE_TRIALS in .env (redeploy after changing).'] });
+  }
   return { at: Date.now(), cards: cards.sort((a, b) => rank[a.status] - rank[b.status]) };
 }

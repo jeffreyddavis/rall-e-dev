@@ -30,3 +30,18 @@ test('demo console roles: the viewer key can only look; the operator key can act
   assert.throws(() => sms.opsRole('nope', 'b'), /That key didn’t work/);
   store.close();
 });
+
+test('trials: each service card counts down to its trial end, and a Trials card lists them soonest first', async () => {
+  const { parseTrials } = await import('../server/usage.mjs');
+  assert.deepEqual([...parseTrials('jambase=2026-12-31, Vapi=2027-01-15; bad=soon, =2026-01-01')], [['jambase', '2026-12-31'], ['vapi', '2027-01-15']]);
+  const { Store } = await import('../server/store.mjs'), { Sms } = await import('../server/sms.mjs'), { usageReport } = await import('../server/usage.mjs');
+  const store = new Store(':memory:'), day = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+  const env = { SMS_MODE: 'preview', PUBLIC_BASE_URL: 'https://rall-e.ai', JAMBASE_KEY: 'jb', SERVICE_TRIALS: `vapi=${day(20)}` };
+  const sms = new Sms(store, env, { messages: { create: async () => ({}) } }, async () => ({ ok: false, json: async () => ({}) }));
+  const fetchImpl = async url => String(url).includes('jambase') ? { ok: true, status: 200, json: async () => ({ plan: 'Trial', usedCalls: 100, quota: 1000, remainingCalls: 900, periodEnd: `${day(1)}T00:00:00Z` }) } : { ok: false, status: 500, json: async () => ({}) };
+  const r = await usageReport(sms, env, fetchImpl);
+  const jb = r.cards.find(c => c.id === 'jambase'), trials = r.cards.find(c => c.id === 'trials');
+  assert.match(jb.facts[0], /^Trial ends .* \(tomorrow\)$/); assert.equal(jb.status, 'critical'); // 2 days or less: red, and it triggers the demo banner
+  assert.match(trials.facts[0], /^JamBase: Trial ends/); assert.match(trials.facts[1], /^vapi: Trial ends .* \(in 20 days\)$/); assert.equal(trials.status, 'critical');
+  store.close();
+});
