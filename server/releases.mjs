@@ -27,5 +27,6 @@ export const RELEASES = [
   { id: '2026-10-05-team-browser', date: '2026-10-05', team: true, hold: true, text: 'Sources whose events only show up after the page loads (like venues using a ticketing widget) can now be read with a real browser on our server. Sites that forbid bots (Bookeo, DICE, Resident Advisor) are never touched, so venues that only list events through them stay at 0.' },
   { id: '2026-10-05-music-mix', date: '2026-10-05', hold: true, text: 'Live music picks now mix small local shows and bigger names from all our sources, with ticket prices shown when the venue lists them.' },
   { id: '2026-10-06-screenshot-plan', date: '2026-10-06', hold: true, text: 'Saw something fun? Text me a screenshot or a flyer and I\x27ll turn it into a plan you can invite friends to.' },
-  { id: '2026-10-06-friends-places', date: '2026-10-06', hold: true, text: 'Traveling? Ask me "where do my friends go in Austin?" and I\x27ll show your friends\x27 favorite spots there, with a page you can share.' }
+  { id: '2026-10-06-friends-places', date: '2026-10-06', hold: true, text: 'Traveling? Ask me "where do my friends go in Austin?" and I\x27ll show your friends\x27 favorite spots there, with a page you can share.' },
+  { id: '2026-10-06-friends-going', date: '2026-10-06', hold: true, text: 'When I suggest something, I\x27ll tell you which friends are going (if they share it). Say "I\x27m in" and I\x27ll add you to their plan.' }
 ];

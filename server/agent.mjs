@@ -10,6 +10,7 @@ import { legText } from './discovery.mjs';
 import { areaCodeState } from './geoguess.mjs';
 import { localNow, planTiming, stamp, ago } from './timeline.mjs';
 import { KINDS as MEMORY_KINDS } from './memory.mjs';
+import { dayOf } from './merge.mjs';
 
 const CATEGORIES = ['dinner', 'live shows', 'comedy', 'museums', 'nature'];
 const digits = value => String(value || '').replace(/\D/g, '').slice(-10);
@@ -63,6 +64,7 @@ Showing what you can do (see "Features" in the situation):
 - Their own plans: a friend invited to someone else's plan can still plan their own things. If they want to plan something separate ("this is separate from Jeff", or they ask you to build ideas you found for them into a plan), use start_own_plan; never tell them they can't or that only the other host can. A finished or unrelated plan they were invited to is not a reason to refuse.
 - Teaching Rall-e: members can share hidden gems, websites with local events, feedback or feature ideas. Use share_tip; you never change your own behavior from a tip, the team reviews them. Invite it when it fits ("know a spot I should know about? tell me").
 - Favorites: "my top 5 …" lists (set_favorites) are fun to share and help friends: offer it when someone raves about places, and mention friends' favorites when they fit a search. When they ask where their friends go somewhere, or say they're traveling, use friends_places for that city.
+- Friends going: when an option shows FRIENDS GOING, lead with it ("Mike and Sarah are going to the jazz night Saturday"). If a friend has a plan for it and they want in ("I'm in", "put me with them"), use join_friends_plan; otherwise offer to start their own plan and invite those friends.
 - Who else is going: when someone says they're going to a specific event (a concert, a game, a conference, a festival), call going_to and tell them which friends on Rall-e are going too. The first time, ask in a few words if friends on Rall-e may see they're going (share), and keep it private until they say yes. Be honest that you only know about friends on Rall-e who told you; suggest texting you contact cards to connect more friends. Never reveal anyone who isn't sharing.
 - Call results: the result text includes the restaurant's reason and what they said. If they ask why or what happened, pass that along (quote them); never answer "I don't know why" when there is a quote. If there truly is nothing, say they didn't give a reason.
 - Reservations and tickets: when they want a table, confirm party size, day and time (use what you know; ask only for what's missing). If they explicitly ask you to phone the restaurant and call_restaurant is available, use it once, tell them the call is underway, and wait for the follow-up text with the result. Otherwise use book_table and send the link in one line: they tap to confirm. When call_restaurant is available, offer to call for them instead of giving out the restaurant's phone number ("Or want me to call them for you?"), and never send a restaurant's number when they want a table. Never imply a call happened when the tool is unavailable or failed. When they say it's booked (or it failed), update_booking. For tickets, send the ticket link; when they say they bought them, record_purchase with the amount. You can't log in to their Resy or OpenTable accounts or pay for them: never ask for passwords or card numbers.
@@ -193,7 +195,8 @@ export class Agent {
       T('going_to', 'They said they are going to (or have tickets for) a specific event: a concert, a game, a conference. Saves it and tells you which of their friends on Rall-e are going too. share = whether friends on Rall-e may see they are going (only true if they said yes).', { name: { type: 'string', description: 'Event name, e.g. "TechCrunch Disrupt" or "Phoebe Bridgers at the Greek"' }, date: { type: 'string', description: 'YYYY-MM-DD (first day)' }, venue: { type: 'string' }, event_id: { type: 'string', description: 'If it is one of your found listings' }, share: { type: 'boolean' } }, ['name', 'date', 'share']),
       T('who_else_going', 'Which of their friends on Rall-e are going to an event (only friends who said they are going and allow friends to see it).', { name: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD' }, event_id: { type: 'string' } }, ['name', 'date']),
       T('set_going_share', 'They changed whether friends may see that they are going (to one event by name, or their latest).', { share: { type: 'boolean' }, name: { type: 'string' } }, ['share']),
-      T('not_going', 'They are no longer going to an event they told you about.', { name: { type: 'string' } }, ['name']));
+      T('not_going', 'They are no longer going to an event they told you about.', { name: { type: 'string' } }, ['name']),
+      T('join_friends_plan', 'They want in on a plan a friend already has for an event ("I\'m in, put me with Mike", after you said friends are going). Adds them to that friend\'s plan as going and texts them their plan page. Only for events where find_things or who_else_going showed a friend\'s plan.', { event_id: { type: 'string', description: 'The event id from your results' }, friend: { type: 'string', description: 'The friend\'s first name, if they said' } }, ['event_id']));
     if (role !== 'new' && this.flow.sms.bookings) common.push(
       T('book_table', 'Get a table at a restaurant or bar they picked (a place id you found). Only after they have confirmed party size, day and time. Returns a link to the venue\'s own booking page with those details filled in (they tap to confirm) and the venue\'s phone number.', { event_id: eventId, party_size: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: '24h HH:MM, e.g. 19:30' }, notes: { type: 'string', description: 'Seating or occasion notes, e.g. "patio", "birthday"' } }, ['event_id', 'party_size', 'date', 'time']),
       T('update_booking', 'They told you how a booking went: "booked it" (confirmed), "they were full" (failed), "cancel it" (cancelled). Updates their latest booking unless you pass its id.', { status: { type: 'string', enum: ['confirmed', 'failed', 'cancelled'] }, id: { type: 'string' }, confirmation: { type: 'string', description: 'Confirmation number if they gave one' }, party_size: { type: 'integer' }, time: { type: 'string', description: '24h HH:MM if it changed' } }, ['status']),
@@ -300,7 +303,14 @@ export class Agent {
         stats.bump(`searches_${input.category || (/movie|film|showtime/i.test(input.what || '') ? 'movies' : 'general')}`, 1, phone); if (!found.length) stats.bump('searches_empty', 1, phone);
         const favs = flow.sms.favorites?.friendsNear(phone, loc) || [], gems = flow.sms.ideas?.gemsNear(loc) || [];
         const extra = `${favs.length ? `\nFriends' favorites near here (mention one when it fits; say whose favorite it is):\n${favs.join('\n')}` : ''}${gems.length ? `\nHidden gems Rall-e members recommended near here (say who recommended it):\n${gems.join('\n')}` : ''}`;
-        const line = e => e.kind !== 'place' ? this.discovery.describe(e)
+        // Friends going (only friends who share that they're going), and whether one has a plan they could join.
+        const friendsOn = e => {
+          const going = flow.sms.going?.friendsGoing(phone, { name: e.short, date: dayOf(e), eventId: e.id }) || [];
+          if (!going.length) return '';
+          const plans = flow.sms.going.friendPlans(phone, { name: e.short, date: dayOf(e), eventId: e.id });
+          return `\n  FRIENDS GOING: ${going.map(f => f.name).join(', ')}${plans.length ? ` (${plans.map(p => p.who).join(', ')} has a plan for it they can join: join_friends_plan)` : ''}`;
+        };
+        const line = e => e.kind !== 'place' ? `${this.discovery.describe(e)}${friendsOn(e)}`
           : checked.has(e.id) ? `${this.discovery.describe(e)}\n  CHECKED: ${this.discovery.checkText(checked.get(e.id)).split('\n').slice(1).join(' ').replace(/\s+/g, ' ')}`
           : `${this.discovery.describe(e)}\n  NOT CHECKED: call check_places on it before recommending it.`;
         return (found.length ? `Found near ${loc.label}:\n${found.map(line).join('\n')}\nOnly recommend events listed here and places marked CHECKED whose check supports it (open then, nothing on their site saying closed or out of season).` : `Nothing open matched near ${loc.label}. Try a broader search, a different time or different dates.`) + extra;
@@ -367,6 +377,15 @@ export class Agent {
         return `Their friends' picks near ${loc.label} (${places.length} places from ${new Set(places.map(r => r.who)).size} friends):\n${lines.join('\n')}\nPage with all of them, grouped and shareable (send it in one short line): ${flow.sms.favorites.friendsPage(phone, loc)}\nLead with a few picks by name and whose favorite each is; offer to plan around one.`;
       }
       if (name === 'remove_favorites') { const n = flow.sms.favorites.remove(phone, input.category, input.city || ''); return n ? 'Deleted.' : 'No list like that.'; }
+      if (name === 'join_friends_plan') {
+        const e = eventById(input.event_id); if (!e) return 'Error: unknown event id. Use an id from your results.';
+        const plans = flow.sms.going.friendPlans(phone, { name: e.short, date: dayOf(e), eventId: e.id });
+        const pick = plans.find(p => !input.friend || p.who.toLowerCase().startsWith(String(input.friend).toLowerCase())) || plans[0];
+        if (!pick) return 'No friend\'s plan for that event that they can join (friends only show up when they share that they\'re going). Offer to start their own plan with it (make_plan) and invite the friend instead.';
+        const r = flow.joinShared(phone, flow.sms.invites?.nameOf(phone) || t?.s?.name || 'Friend', pick.token);
+        stats.bump('joined_friends_plan', 1, phone);
+        return r.already === 'host' ? 'That\'s their own plan.' : r.already ? `They were already on ${pick.who}'s plan. Their page: ${r.link}` : `Joined ${pick.who}'s plan "${pick.title}" as going. They were just texted their plan page; ${pick.who} and the group see them on it. Confirm in a few words (no link needed). Seats can't be picked here: if they need a ticket, point them to the ticket link and suggest buying in the same section as ${pick.who}.`;
+      }
       if (name === 'going_to' || name === 'who_else_going') {
         const g = flow.sms.going, ev = { name: input.name, date: input.date, eventId: input.event_id || null };
         const m = name === 'going_to' ? g.mark(phone, { name: input.name, date: input.date, venue: input.venue, eventId: input.event_id || null, share: input.share === true }) : null;

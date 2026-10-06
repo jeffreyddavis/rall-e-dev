@@ -5,6 +5,7 @@
 // going, connected friends who are going (and sharing) get a one-time "Marc is going too" (8 AM to 9 PM their time).
 import { stats } from './stats.mjs';
 import { localNow } from './timeline.mjs';
+import { eventById } from './catalog.mjs';
 
 const STOP = new Set(['the', 'and', 'with', 'at', 'in', 'on', 'of', 'a', 'an', 'to', 'for', 'live', 'show', 'concert', 'tour', 'night', '2026', '2027']);
 const words = v => new Set(String(v || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N} ]/gu, ' ').split(/\s+/).filter(w => w.length > 1 && !STOP.has(w)));
@@ -63,10 +64,24 @@ export class Going {
     return out;
   }
   // Friends going to the same event who said friends may see it. Names only.
-  whoElse(phone, event) {
+  whoElse(phone, event) { return this.friendsGoing(phone, event).map(f => f.name); }
+  friendsGoing(phone, event) {
+    if (!event?.date) return [];
     const friends = this.connections(phone); if (!friends.size) return [];
     const rows = this.db.prepare('SELECT * FROM going WHERE date=? AND share=1 AND phone != ?').all(event.date, phone).filter(r => friends.has(r.phone) && !this.sms.isStopped?.(r.phone) && this.same(r, { name: event.name, date: event.date, event_id: event.eventId }));
-    return [...new Set(rows.map(r => r.phone))].map(p => this.sms.invites?.nameOf(p) || 'A friend');
+    return [...new Set(rows.map(r => r.phone))].map(p => ({ phone: p, name: this.sms.invites?.nameOf(p) || 'A friend' }));
+  }
+  // Plans those friends are hosting for this event (Marc #24: "I'm in, put me with them" joins their plan). Only friends
+  // who share that they're going, and only open plans.
+  friendPlans(phone, event) {
+    const flow = this.sms.flow, out = [];
+    for (const f of this.friendsGoing(phone, event)) for (const t of flow?.threadsFor(f.phone) || []) {
+      if (t.role !== 'host' || !['proposed', 'confirmed'].includes(t.s.plan.status)) continue;
+      const stops = t.s.plan.stops.map(id => eventById(id)).filter(Boolean);
+      const hit = t.s.plan.stops.includes(event.eventId) || stops.some(e => this.same({ name: e.short, date: e.localDate || String(e.startsAt || '').slice(0, 10) }, { name: event.name, date: event.date }));
+      if (hit && !out.some(x => x.digest === t.digest)) out.push({ who: f.name, digest: t.digest, title: t.s.plan.title, token: this.sms.store.shareToken(t.s, t.digest) });
+    }
+    return out;
   }
   wipe(phone) { this.db.prepare('DELETE FROM going_told WHERE friend=? OR who=?').run(phone, phone); return this.db.prepare('DELETE FROM going WHERE phone=?').run(phone).changes; }
 }

@@ -31,3 +31,33 @@ test('who else is going: only connected friends who chose to share', () => {
   assert.equal(g.whoElse(A, { name: 'TechCrunch Disrupt', date }).length, 1);
   store.close();
 });
+
+test('friends going show on options, and "I\'m in" joins the friend\'s plan for it', async () => {
+  const store = new Store(':memory:');
+  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', SMS_ALLOWED_RECIPIENTS: `${A},${B}` }, { messages: { create: async () => ({}) } }, async () => ({ ok: false, json: async () => ({}) }));
+  const { registerEvent } = await import('../server/catalog.mjs');
+  const date = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 10);
+  const jazz = registerEvent({ id: 'tm_jazz', kind: 'event', short: 'Jazz Night', venue: 'Hollywood Bowl', localDate: date, time: 'Sat 8 PM', title: 'Jazz Night', category: 'music', priceText: '$48' });
+  // Mike (A) hosts a plan for the jazz night and shares that he's going; Marc (B) is his saved contact.
+  const { id } = store.create('Mike'); store.hostAction(id, 'accept', { eventId: 'tm_jazz' });
+  const s = store.get(id), digest = store.resolve(id);
+  store.db.prepare("INSERT INTO sms_threads (phone, digest, plan, participant, role, muted, updated) VALUES (?, ?, ?, '', 'host', 0, ?)").run(A, digest, s.id, Date.now());
+  store.db.prepare('INSERT INTO host_contacts VALUES (?,?,?,?,?)').run(digest, 'marc', 'Marc', B, Date.now());
+  sms.invites.nameOf = p => ({ [A]: 'Mike', [B]: 'Marc' })[p] || '';
+  sms.going.mark(A, { name: 'Jazz Night at the Bowl', date, eventId: 'tm_jazz', share: true });
+  const plans = sms.going.friendPlans(B, { name: jazz.short, date, eventId: jazz.id });
+  assert.deepEqual(plans.map(p => [p.who, p.title]), [['Mike', s.plan.title]]);
+  // In search results the option says who's going and that there's a plan to join.
+  sms.discovery.location = () => ({ lat: 34.1, lng: -118.3, label: 'Los Angeles, CA' });
+  sms.discovery.search = async () => [jazz]; sms.discovery.remember = () => {};
+  const found = await sms.flow.agent.run(B, 'find_things', { what: 'jazz' }, { t: null }, 'jazz this weekend?');
+  assert.match(found, /Jazz Night[\s\S]*FRIENDS GOING: Mike \(Mike has a plan for it they can join: join_friends_plan\)/);
+  // "I'm in, put me with Mike": Marc joins Mike's plan as going.
+  const out = await sms.flow.agent.run(B, 'join_friends_plan', { event_id: 'tm_jazz', friend: 'Mike' }, { t: null }, "I'm in, put me with Mike");
+  assert.match(out, /Joined Mike's plan/);
+  assert.ok(store.get(id).plan.participants.some(p => p.name === 'Marc' && p.response === 'yes'));
+  assert.match(await sms.flow.agent.run(B, 'join_friends_plan', { event_id: 'tm_jazz' }, { t: null }, 'again'), /already on Mike's plan/);
+  // Someone not connected to Mike sees nothing.
+  assert.match(await sms.flow.agent.run(C, 'join_friends_plan', { event_id: 'tm_jazz' }, { t: null }, 'me too'), /No friend's plan/);
+  store.close();
+});
