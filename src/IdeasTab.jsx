@@ -5,7 +5,7 @@ import { RefreshCw, ExternalLink, Plus } from 'lucide-react';
 // team's own. This is the team's task list. Approving a gem puts it on the map for the agent; approving a site adds it
 // as a source; approving a flyer event (a public event someone texted a flyer of) adds it to the event index.
 // Nothing members send changes Rall-e until it's approved here.
-const KIND = { gem: 'Hidden gem', source: 'Event website', event: 'Flyer event', feedback: 'Feedback', feature: 'Feature idea' };
+const KIND = { gem: 'Hidden gem', source: 'Event website', event: 'Flyer event', newsletter: 'Newsletter', feedback: 'Feedback', feature: 'Feature idea' };
 const STATUS = { new: 'New', approved: 'Approved', doing: 'In progress', done: 'Done', declined: 'Declined' };
 
 export default function IdeasTab({ call, ago }) {
@@ -17,7 +17,7 @@ export default function IdeasTab({ call, ago }) {
   return <section className="ops-usage ops-sources">
     <div className="ops-usage-head"><h2>Ideas</h2><span>Tips and feedback members text Rall-e, plus the team’s ideas. Nothing changes Rall-e until it’s approved here.</span>
       <button className="ops-link" disabled={!!busy} onClick={() => run('load', () => call('ideas'))}><RefreshCw size={14} className={busy === 'load' ? 'spin' : ''}/>Refresh</button></div>
-    <div className="ideas-filter">{[['open', 'Open'], ['gem', 'Gems'], ['source', 'Websites'], ['event', 'Flyers'], ['feedback', 'Feedback'], ['feature', 'Features'], ['all', 'All']].map(([k, l]) =>
+    <div className="ideas-filter">{[['open', 'Open'], ['gem', 'Gems'], ['source', 'Websites'], ['event', 'Flyers'], ['newsletter', 'Newsletters'], ['feedback', 'Feedback'], ['feature', 'Features'], ['all', 'All']].map(([k, l]) =>
       <button key={k} className={filter === k ? 'on' : ''} onClick={() => setFilter(k)}>{l}</button>)}</div>
     {error && <p className="error" role="alert">{error}</p>}{msg && <p className="ins-empty">{msg}</p>}
     <details className="src-manual"><summary>Add an idea for the team</summary>

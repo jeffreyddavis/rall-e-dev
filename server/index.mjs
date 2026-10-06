@@ -72,6 +72,13 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req), key = url.searchParams.get('key');
       return json(res, 200, url.pathname.endsWith('/inbound') ? sms.sendblueInbound(key, input) : sms.sendblueStatus(key, url.searchParams.get('log'), input));
     }
+    if (url.pathname === '/api/inbound/email') {
+      // Postmark inbound (events@rall-e.ai): the webhook URL carries INBOUND_EMAIL_SECRET as basic auth. Answer at once;
+      // the newsletter is read in the background (server/newsletters.mjs).
+      if (req.method !== 'POST') fail(405, 'Method not allowed.');
+      if (!sms.newsletters.authorized(req.headers.authorization)) fail(401, 'Not authorized.');
+      return json(res, 200, sms.newsletters.receive(await body(req, 15_000_000)));
+    }
     if (url.pathname === '/api/vapi/webhook') {
       if (req.method !== 'POST') fail(405, 'Method not allowed.');
       // Each call has a separate random secret supplied as a Vapi server header.

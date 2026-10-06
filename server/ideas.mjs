@@ -9,7 +9,8 @@ import { fail } from './store.mjs';
 import { stats } from './stats.mjs';
 
 // event: a public event someone texted a flyer or screenshot of (Marc #16); approving it adds it to the event index.
-export const KINDS = ['gem', 'source', 'feedback', 'feature', 'event'];
+// newsletter: an organizer newsletter emailed to events@ (server/newsletters.mjs); approving trusts the sender.
+export const KINDS = ['gem', 'source', 'feedback', 'feature', 'event', 'newsletter'];
 export const STATUSES = ['new', 'approved', 'doing', 'done', 'declined'];
 const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 const DAY = 86400000;
@@ -48,6 +49,10 @@ export class Ideas {
         if (!at) fail(400, 'Couldn’t find that place on the map. Add the city or a fuller name in the note, then approve again.');
         this.db.prepare('UPDATE ideas SET lat=?, lng=? WHERE id=?').run(at.lat, at.lng, id);
       }
+      if (r.kind === 'newsletter') {
+        const n = await this.sms.newsletters.approve(JSON.parse(r.data || '{}'), r.city);
+        result = `Added ${n} events and trusted this sender: its next newsletters go straight into the index.`;
+      }
       if (r.kind === 'event') {
         const d = JSON.parse(r.data || '{}');
         if (!d.date) fail(400, 'This flyer event has no date. Add it in the note as YYYY-MM-DD, then approve again.');
@@ -60,6 +65,7 @@ export class Ideas {
         result = s ? `Added as a source (${s.found} events).` : 'Already a source.';
       }
     }
+    if (status === 'declined' && r.kind === 'newsletter' && r.status !== 'declined') { this.sms.newsletters.block(JSON.parse(r.data || '{}')); result = 'Sender blocked: their newsletters are ignored from now on.'; }
     this.db.prepare('UPDATE ideas SET status=COALESCE(?, status), team_note=COALESCE(?, team_note), updated=? WHERE id=?').run(status || null, teamNote == null ? null : clean(teamNote, 500), Date.now(), id);
     return { idea: this.list().find(x => x.id === id), result };
   }

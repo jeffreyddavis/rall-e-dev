@@ -41,6 +41,9 @@ People add sources that clearly list events, so a refresh that finds 0 or 1 is t
 ## Flyers members text in (since 10-06)
 A public event someone texts a flyer or screenshot of lands in /ops → Ideas as a "Flyer event" (date, time, place, price). Approving it adds it to the index like a one-off event added by hand.
 
+## Organizer newsletters (since 10-06)
+Organizers send or forward newsletters to **events@rall-e.ai** (Postmark inbound). Claude reads the city and upcoming events. A new sender shows up in /ops → Ideas as "Newsletter from …"; approving adds its events and trusts the sender, so its later newsletters go straight in; declining blocks it.
+
 ## One-off events by hand
 `/ops` → Sources → "Add a one-off event by hand" (both keys). Use it for supper clubs, pop-ups, night markets and other things with no feed. The doc calls this "own the deserts." The events show up in searches near that city.
 
