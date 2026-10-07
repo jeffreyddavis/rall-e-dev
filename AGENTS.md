@@ -84,6 +84,64 @@ node --test test/*.test.mjs             # unit tests
 ```
 Without `SMS_MODE=live` nothing is ever texted: preview mode logs instead.
 
+## Design requests from Slack (Donovan)
+
+Donovan (our designer) sends change requests by tagging @Claude in Slack. Those sessions end in a pull request that Jeff reviews and deploys. They never deploy, and they never touch the live server.
+
+### Donovan has wide latitude on design
+Make the change he asks for without second-guessing his taste. In scope:
+- Visual styling: colors, typography, spacing, layout, borders, shadows, icons, images, animation.
+- Responsive behavior and how things look on mobile.
+- Wording on marketing or informational pages, except the legal and consent text listed below.
+- Rearranging or restyling existing elements, as long as they keep working the same way.
+
+If a request is ambiguous on taste, pick the reading that best fits the rest of the site, note it in the PR, and go ahead.
+
+### He doesn't change functionality
+Leave these alone unless Jeff has approved it in the thread:
+- Server code, API routes, the database or data files, AI and model logic, and the messaging integrations (Sendblue, Twilio).
+- JavaScript behavior: form handling, validation, fetch calls, and event handlers.
+  - Moving or restyling an element is fine.
+  - Changing what it does is not.
+- `.env`, anything holding keys, `scripts/`, deploy and build config, dependencies (`package.json`), and tests.
+- The text of SMS or iMessage messages Rall-e sends.
+
+### Stop and flag Jeff instead of making a PR when…
+…the request could break something or has consequences beyond looks. Examples:
+- **The join page's consent wording, checkbox, or code-verification step.**
+  - These are described word for word in our 10DLC campaign registration.
+  - Changing them can put SMS registration at risk.
+- **The privacy policy or terms pages.**
+- **The `/ops` dashboard.**
+  - The view-only side must never show or hint at operator features.
+  - Restyling that touches shared markup can leak them.
+- **Removing or renaming an element, `id`, class, or form field name that JavaScript or tests depend on.**
+  - Search the codebase for it before changing it.
+- **Anything that would need a new dependency, a new external script, font, or CDN, or a change outside the front-end files.**
+- **Anything that removes a feature or a step a user goes through**, even if it's framed as "simplifying the design."
+- **Anything you're unsure about.** When in doubt, flag it.
+
+To flag:
+1. Don't make the change.
+2. Reply in the Slack thread starting with **⚠️ NEEDS JEFF**.
+3. In plain words, say:
+   - what Donovan asked for,
+   - what it could break and why,
+   - and a safe version, if there is one.
+4. Ask Donovan not to click "Create PR" and to tag Jeff in the thread.
+
+If only part of a request is risky, do the safe part as a PR and flag the rest the same way.
+
+### Every design PR
+- Run the test suite (see "How to run" above). Don't open the PR if tests fail. Report the failure instead.
+- Keep the diff to what was asked. No drive-by refactors.
+- In the PR description:
+  - Say what changed and which pages it affects.
+  - Add before and after screenshots, desktop and mobile, if you can capture them. Otherwise, describe the visual change.
+- Add a line to the change log in `docs/STATUS.md`, beginning "Design (Donovan via Slack):".
+- Title the PR `Design: <short description>`.
+
+
 ### Deploy (production)
 - `bash scripts/deploy.sh live` (on Windows, run it inside WSL from `/mnt/c/...`; Git Bash has no rsync). It rsyncs a clean copy, runs `npm ci`, tests and build, then uploads and activates with a health check and **automatic rollback**.
   - Needs the SSH alias `rally` (`scripts/ssh-config.example`; get the key from Jeff).
