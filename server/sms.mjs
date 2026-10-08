@@ -10,6 +10,7 @@ import { VoiceCalls } from './voice.mjs';
 import { Going } from './going.mjs';
 import { Ideas } from './ideas.mjs';
 import { Handoffs } from './handoffs.mjs';
+import { Alerts } from './alerts.mjs';
 import { Newsletters } from './newsletters.mjs';
 import { Favorites } from './favorites.mjs';
 import twilio from 'twilio';
@@ -89,7 +90,8 @@ export class Sms {
     this.voice = new VoiceCalls(this, env, fetchImpl);
     this.going = new Going(this);
     this.ideas = new Ideas(this);
-    this.handoffs = new Handoffs(this, env, normalize); // human helpers: tasks Rall-e couldn't finish (/ops Handoffs)
+    this.handoffs = new Handoffs(this, env, normalize);
+    this.alerts = new Alerts(this, env); // proactive texts: "tell me when" watches and weekend picks // human helpers: tasks Rall-e couldn't finish (/ops Handoffs)
     this.newsletters = new Newsletters(this, env); // events@rall-e.ai via Postmark
     this.favorites = new Favorites(this);
     this.memory = new Memory(this); this.memory.attach(store); try { this.memory.migrate(); } catch (e) { console.error('Memory migration:', e.message); }

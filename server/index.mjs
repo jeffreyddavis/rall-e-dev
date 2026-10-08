@@ -146,6 +146,11 @@ const server = http.createServer(async (req, res) => {
       if (mePhoto && req.method === 'DELETE') { const phone = sms.invites.phoneFor(mePhoto[1]); sms.photos.remove(phone); return json(res, 200, sms.invites.view(phone)); }
       const meMem = /^\/api\/me\/([\w-]{20,40})\/memory\/([\w-]{8})$/.exec(url.pathname);
       if (meMem && req.method === 'DELETE') { const phone = sms.invites.phoneFor(meMem[1]); sms.memory.remove(phone, meMem[2]); stats.bump('memory_deleted_page', 1, phone); return json(res, 200, sms.invites.view(phone)); }
+      // "About you" (tastes into memory, weekend picks on/off) and the watches Rall-e keeps for them.
+      const meTastes = /^\/api\/me\/([\w-]{20,40})\/tastes$/.exec(url.pathname);
+      if (meTastes && req.method === 'POST') { const phone = sms.invites.phoneFor(meTastes[1]), saved = sms.alerts.saveTastes(phone, await body(req)); return json(res, 200, { ...sms.invites.view(phone), saved }); }
+      const meWatch = /^\/api\/me\/([\w-]{20,40})\/watch\/(wa_[\w-]{7})$/.exec(url.pathname);
+      if (meWatch && req.method === 'DELETE') { const phone = sms.invites.phoneFor(meWatch[1]); sms.alerts.stopById(phone, meWatch[2]); return json(res, 200, sms.invites.view(phone)); }
       if (me && req.method === 'POST' && me[2]) { const phone = sms.invites.phoneFor(me[1]); sms.invites.create(phone, (await body(req)).name || ''); return json(res, 200, sms.invites.view(phone)); }
       const poll = /^\/api\/poll\/([\w-]{16})$/.exec(url.pathname);
       if (poll && req.method === 'GET') return json(res, 200, { ...sms.polls.view(poll[1]), textNumbers: textNumbers() });
@@ -421,7 +426,7 @@ const server = http.createServer(async (req, res) => {
     res.end(await readFile(path));
   } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); if (sms.voice.enabled) { setTimeout(() => sms.voice.reconcile().catch(() => {}), 30000).unref(); setInterval(() => sms.voice.reconcile().catch(() => {}), 120000).unref(); } });
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); setInterval(() => sms.alerts.tick().catch(e => console.error('Alerts:', e.message)), 5 * 60000).unref(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); if (sms.voice.enabled) { setTimeout(() => sms.voice.reconcile().catch(() => {}), 30000).unref(); setInterval(() => sms.voice.reconcile().catch(() => {}), 120000).unref(); } });
 // Deploys restart the service: stop taking requests, finish texts already being handled (up to 25 s), then exit.
 let stopping = false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => {

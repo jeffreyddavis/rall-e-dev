@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Camera, Check, Copy, Gift, LoaderCircle, Share2, Plus, Trash2 } from 'lucide-react';
+import { Camera, Check, Copy, Gift, LoaderCircle, Share2, Plus, Trash2, Sparkles, BellRing } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './me.css';
 
@@ -54,6 +54,7 @@ export default function MePage({ token }) {
     <header><a href="/" aria-label="Rall-e home"><Wordmark/></a><span className="source">Only you can see this page</span></header>
     {!me ? (error ? <p className="error" role="alert">{error}</p> : <LoaderCircle className="spin"/>) : <div className="me">
       <PhotoCard me={me} token={token} onChange={d => setMe({ ...me, ...d })} setError={setError}/>
+      <AboutCard me={me} token={token} onChange={d => setMe({ ...me, ...d })}/>
       <section className="me-card">
         <p className="me-eyebrow"><Gift size={16}/>Rall-e is invite-only</p>
         <h2 className="me-title">Invite a friend</h2>
@@ -75,6 +76,7 @@ export default function MePage({ token }) {
         </form>
         {error && <p className="error" role="alert">{error}</p>}
       </section>
+      <WatchCard me={me} token={token} onChange={d => setMe({ ...me, ...d })}/>
       <MemoryCard me={me} token={token} onChange={d => setMe({ ...me, ...d })} setError={setError}/>
       {me.joined.length > 0 && <section className="me-card"><h2>Joined with your invite</h2><ul className="me-joined">{me.joined.map((j, i) => <li key={i}><span className="avatar">{j.name.slice(0, 1)}</span><span>{j.name}</span><small>{new Date(j.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small></li>)}</ul></section>}
     </div>}
@@ -97,5 +99,58 @@ function MemoryCard({ me, token, onChange, setError }) {
       <span><small>{f.label}{f.about ? ` · ${f.about}` : ''}{f.source !== 'said' ? ' · guess' : ''}</small><strong>{f.value}</strong></span>
       <button className="icon-button" disabled={busy === f.id} onClick={() => remove(f.id)} aria-label={`Forget: ${f.value}`}><Trash2 size={16}/></button>
     </li>)}</ul>}
+  </section>;
+}
+
+// "Tell Rall-e about you" (Mike): tastes go into what Rall-e knows (listed below, each removable), and feed its
+// suggestions, weekend picks and alerts. Weekend picks are opt-in.
+const TASTES = [
+  ['music', 'Music you love', 'indie rock, jazz, Khruangbin'],
+  ['comedy', 'Comedy', 'stand-up, improv, a comedian you love'],
+  ['food', 'Food and drinks you love', 'Thai, ramen, natural wine bars'],
+  ['activities', 'Things you like doing', 'hiking, trivia nights, museums'],
+  ['avoid', 'Not into', 'clubs, long lines, very loud places']
+];
+function AboutCard({ me, token, onChange }) {
+  const [form, setForm] = useState({}), [busy, setBusy] = useState(false), [note, setNote] = useState(''), [err, setErr] = useState('');
+  const [flip, setFlip] = useState(null), weekend = flip ?? Boolean(me.alerts?.weekend); // the switch moves at once; reverts if saving fails
+  async function save(data, done) {
+    setBusy(true); setErr(''); setNote('');
+    try { const d = await call(token, '/tastes', data); onChange(d); done?.(d); } catch (e) { setErr(e.message); } finally { setBusy(false); setFlip(null); }
+  }
+  const filled = TASTES.some(([k]) => (form[k] || '').trim());
+  return <section className="me-card me-about">
+    <p className="me-eyebrow"><Sparkles size={16}/>Better picks for you</p>
+    <h2 className="me-title">Tell Rall-e about you</h2>
+    <p>The more Rall-e knows, the better its ideas, weekend picks and alerts. Separate things with commas. You can also just text it.</p>
+    <form className="me-new me-tastes" onSubmit={e => { e.preventDefault(); save(form, d => { setForm({}); setNote(d.saved ? `Saved ${d.saved} ${d.saved === 1 ? 'thing' : 'things'}. They’re listed under “What Rall-e knows”.` : 'Nothing new to save.'); }); }}>
+      {TASTES.map(([k, label, hint]) => <React.Fragment key={k}><label htmlFor={`taste-${k}`}>{label}</label>
+        <input id={`taste-${k}`} value={form[k] || ''} onChange={e => setForm({ ...form, [k]: e.target.value })} placeholder={hint} maxLength={300}/></React.Fragment>)}
+      <small className="me-muted">Allergies or dietary needs? Text Rall-e: they’re kept in your secure vault.</small>
+      <button className="button primary full" disabled={busy || !filled}>{busy ? 'Saving…' : 'Save'}</button>
+    </form>
+    <label className="me-switch" htmlFor="weekend-picks">
+      <input id="weekend-picks" type="checkbox" checked={weekend} disabled={busy} onChange={e => { const on = e.target.checked; setFlip(on); save({ weekend: on }, () => setNote(on ? 'Weekend picks are on: look for a text Thursday afternoon.' : 'Weekend picks are off.')); }}/>
+      <span><strong>Weekend picks</strong><small>A text every Thursday afternoon with 2–3 ideas for the weekend, picked for you.</small></span>
+    </label>
+    {note && <p className="me-muted" role="status">{note}</p>}{err && <p className="error" role="alert">{err}</p>}
+  </section>;
+}
+// What Rall-e is keeping an eye out for ("tell me when…" by text), each removable.
+function WatchCard({ me, token, onChange }) {
+  const [busy, setBusy] = useState(''), list = me.alerts?.watches || [];
+  if (!list.length) return null;
+  async function stop(id) {
+    setBusy(id);
+    try { const r = await fetch(`/api/me/${token}/watch/${id}`, { method: 'DELETE' }), d = await r.json(); if (r.ok) onChange(d); } finally { setBusy(''); }
+  }
+  return <section className="me-card">
+    <p className="me-eyebrow"><BellRing size={16}/>Alerts</p>
+    <h2>Rall-e is watching for</h2>
+    <p className="me-muted">It checks about twice a day and texts you when something turns up. Text “tell me when …” to add more.</p>
+    <ul className="me-memory">{list.map(w => <li key={w.id}>
+      <span><small>Near {w.place} · until {new Date(w.until).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small><strong>{w.what}</strong></span>
+      <button className="icon-button" disabled={busy === w.id} onClick={() => stop(w.id)} aria-label={`Stop watching for ${w.what}`}><Trash2 size={16}/></button>
+    </li>)}</ul>
   </section>;
 }

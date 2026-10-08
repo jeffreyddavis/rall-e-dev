@@ -91,7 +91,7 @@ export class Invites {
   view(phone) {
     const joins = this.db.prepare('SELECT code, name, at FROM invite_uses WHERE owner=? ORDER BY at DESC').all(phone);
     if (!this.links(phone).length) this.create(phone);
-    return { name: this.nameOf(phone), photo: this.sms.photos?.urlFor(phone) || null, memory: this.sms.memory?.list(phone) || [], quota: this.quota(phone), used: joins.length,
+    return { name: this.nameOf(phone), photo: this.sms.photos?.urlFor(phone) || null, memory: this.sms.memory?.list(phone) || [], alerts: this.sms.alerts?.forPage(phone) || null, quota: this.quota(phone), used: joins.length,
       links: this.links(phone).map(l => ({ code: l.code, url: this.url(l.code), label: l.label, joins: joins.filter(j => j.code === l.code).length })),
       joined: joins.map(j => ({ name: j.name || 'A friend', at: j.at })) };
   }

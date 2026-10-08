@@ -48,7 +48,7 @@ Vault (private details):
 - The vault's saved card is never used for restaurant calls or charged by Rall-e. Never share card details with a venue; if they require one, the guest must finish directly.
 - Use dietary needs/allergies from the vault when recommending (e.g. mention if a place suits them).
 Showing what you can do (see "Features" in the situation):
-- Answering a need: when they say something one of your features directly handles (a dietary need or allergy -> vault; "what's playing?" -> showtimes; "where should we go near me" with no location -> location; a host unsure what the group wants, torn between options, or saying "not sure what everyone's into" -> a group vote with start_poll; can't book a restaurant online -> offer a restaurant call if call_restaurant is available, and wait for their explicit request before calling), offer it right away in one natural sentence. Call mention_feature with why=need.
+- Answering a need: when they say something one of your features directly handles (a dietary need or allergy -> vault; "what's playing?" -> showtimes; "where should we go near me" with no location -> location; a host unsure what the group wants, torn between options, or saying "not sure what everyone's into" -> a group vote with start_poll; can't book a restaurant online -> offer a restaurant call if call_restaurant is available, and wait for their explicit request before calling; "tell me when…", "let me know if X comes to town", or something not announced yet -> watch_for; often asking what's on this weekend -> weekend picks), offer it right away in one natural sentence. Call mention_feature with why=need.
 - Don't hold back a feature that solves their problem: if it clearly fits what they just said, offer it (or just do it when they've asked). Example: a host setting up a plan says "I'm not sure which of these people would want" -> offer to let the group vote ("Want me to send everyone a quick vote? They can pick one, rank them, or leave it to you."), and start_poll as soon as they say yes.
 - But never pile a second thing on while they're in the middle of setting something up (answering your questions to make a plan, inviting people, picking an option). Call queue_feature instead, finish the current thing, and bring it up in the reply where that's done, tied to what they said. E.g. after the invite goes out: "Done, I texted Maya. And since you mentioned she's vegetarian, I can keep that on file (allergies too) so every spot I suggest works for her. Want me to send the secure link?"
 - Unprompted self-promotion (tips): only when it clearly helps, one at a time, never one they've already seen, and not when the situation says tips aren't allowed now. Most replies mention no feature at all. Call mention_feature with why=tip.
@@ -137,6 +137,7 @@ export class Agent {
       p.participants.length ? `Recent group activity (newest first): ${(s.activity || []).slice(0, 6).map(x => x.text).join(' | ') || 'none'}` : '',
       this.flow.sms.vault.summary(t.phone),
       this.flow.sms.handoffs?.openFor(t.phone) || '',
+      this.discovery.enabled ? this.flow.sms.alerts?.stateLine(t.phone) || '' : '',
       (() => { const c = this.flow.sms.memory?.card(t.phone); return c ? `What you know about them (theirs only; never share with others; "?" = your guess): ${c}` : 'What you know about them: nothing yet. When they tell you something lasting about themselves, use remember.'; })(),
       this.discovery.enabled ? (() => { const loc = this.flow.sms.discovery.location(t.phone);
         return !loc ? 'Location: unknown — ask or offer send_location_link'
@@ -207,6 +208,12 @@ export class Agent {
       T('my_bookings', 'Their recent reservations and purchases through Rall-e, with status.'));
     if (role !== 'new' && this.flow.sms.voice?.enabled) common.push(
       T('call_restaurant', 'Place one AI phone call to the verified restaurant to request a reservation. Only use when their latest text explicitly says to call or phone the restaurant, and party size, date and time are known. This starts a real call; a later text reports the result. Never supply a phone number.', { event_id: eventId, party_size: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: '24h HH:MM' }, notes: { type: 'string' } }, ['event_id', 'party_size', 'date', 'time']));
+    // Proactive alerts: watches ("tell me when…") and weekly weekend picks (server/alerts.mjs).
+    if (role !== 'new' && this.discovery.enabled && this.flow.sms.alerts) common.push(
+      T('watch_for', 'They want to hear when something turns up near them: "tell me when Khruangbin plays LA", "let me know when Halloween displays open", "watch for comedy at the Elysian". Search with find_things first; if nothing matches yet (or they want to hear about future ones), set a watch. You check about twice a day and text them once per new match, in the daytime. Uses their saved location unless they name a place.', { what: { type: 'string', description: 'What they want to hear about, in their words' }, search: { type: 'string', description: 'Search words for find_things, e.g. "Khruangbin" or "Halloween yard display"' }, category: { type: 'string', description: 'Optional find_things category' }, near: { type: 'string', description: 'A city or ZIP if not their saved location' }, days: { type: 'integer', description: 'How long to keep watching (default 60, max 180)' } }, ['what', 'search']),
+      T('my_watches', 'What you are watching for for them.'),
+      T('stop_watching', 'Stop watching for something (words from it, or "all").', { what: { type: 'string' } }, ['what']),
+      T('weekend_picks', 'Turn their weekly weekend picks on or off: a Thursday-afternoon text with 2–3 ideas for the weekend, picked from what they like. Only on when they say yes.', { on: { type: 'boolean' } }, ['on']));
     // Human helpers: only while at least one helper is active, so nothing changes for members until the team has someone.
     if (role !== 'new' && this.flow.sms.handoffs?.available()) common.push(
       T('hand_off', 'Hand a task to a person on the Rall-e team when you can\'t finish it yourself but a person could: a table the booking link or a restaurant call couldn\'t get, calling a venue to ask something, or anything that needs a phone call or a login. Ask them first ("Want me to have someone on my team handle it?") unless they already asked for exactly that. Not for payments or card details, and not when a link you sent already lets them do it. Put everything a person needs in it, so they don\'t have to ask again.', { kind: { type: 'string', enum: ['reservation', 'call', 'info', 'other'] }, goal: { type: 'string', description: 'One line, e.g. "Table for 4 at Funke, Sat Oct 10, 7:30 PM (7–8:30 OK)"' }, details: { type: 'string', description: 'Everything else that matters: name for the booking, flexibility, seating, occasion, budget, deadline, what to ask' }, tried: { type: 'string', description: 'What you already tried and where it failed' } }, ['kind', 'goal', 'tried']));
@@ -227,7 +234,7 @@ export class Agent {
         T('what_i_know', 'ALWAYS call this when they ask what you know or remember about them. Lists everything remembered, plus the link to their page where they can delete things.'));
     if (this.flow.sms.invites?.member(ctx.phone)) {
       const recent = this.flow.sms.lastMedia?.get(ctx.phone), photo = recent && Date.now() - recent.at < 3600000;
-      common.push(T('get_my_page', 'Link to their private Rall-e page, where they can change their profile photo and manage their invites. Use when they ask to change or see their profile/photo or their page.'));
+      common.push(T('get_my_page', 'Link to their private Rall-e page, where they can change their profile photo, tell you what they\'re into ("About you": music, comedy, food, things to do), turn weekend picks on or off, see what you\'re watching for, and manage their invites. Use when they ask to change or see their profile/photo or their page, or to tell you about their tastes.'));
       if (photo) common.push(T('set_profile_photo', 'Use the photo they just texted as their profile photo (friends see it on plan pages). Only when they ask for that or say yes when you offer.'));
       if (this.flow.sms.photos?.urlFor(ctx.phone)) common.push(T('remove_profile_photo', 'Remove their profile photo, when they ask.'));
     }
@@ -412,6 +419,13 @@ export class Agent {
       }
       if (name === 'set_going_share') { const n = flow.sms.going.setShare(phone, input.share, input.name || ''); return n ? `Updated: friends on Rall-e ${input.share ? 'can' : 'can\'t'} see it.` : 'No upcoming event found to update.'; }
       if (name === 'not_going') { const n = flow.sms.going.unmark(phone, input.name); return n ? 'Removed.' : 'No upcoming event by that name.'; }
+      if (name === 'watch_for') {
+        const w = await flow.sms.alerts.watch(phone, { what: input.what, search: input.search, category: input.category, near: input.near, days: input.days });
+        return `Watching for "${w.what}" near ${w.place} until ${new Date(w.until).toISOString().slice(0, 10)}. Tell them you'll text them when something turns up (you check about twice a day). If you know little about their taste for this, you can ask one quick question.`;
+      }
+      if (name === 'my_watches') return flow.sms.alerts.describeWatches(phone);
+      if (name === 'stop_watching') { const s = flow.sms.alerts.stop(phone, input.what); return s.length ? `Stopped watching for: ${s.join('; ')}.` : `Nothing matched. Watching for:\n${flow.sms.alerts.describeWatches(phone)}`; }
+      if (name === 'weekend_picks') { flow.sms.alerts.setWeekend(phone, Boolean(input.on)); return input.on ? 'Weekend picks are on: Thursday afternoons, 2–3 ideas. Tell them, and that "no weekend picks" stops them. If you know little about what they like, ask one question or point them to "About you" on their page (get_my_page).' : 'Weekend picks are off.'; }
       if (name === 'hand_off') {
         const h = flow.sms.handoffs.add(phone, { name: t?.role === 'host' ? t.s.name : t?.person?.name || '', kind: input.kind, goal: input.goal, details: input.details, tried: input.tried });
         return `Handed to the team (${h.id}). Tell them ${PROMISE}. Don't promise it will work, and never ask for card details for it.`;
