@@ -98,7 +98,8 @@ test('"About you" on their page saves tastes into memory and turns weekend picks
   const facts = t.sms.memory.list(ME).map(f => `${f.kind}:${f.value}${f.about ? `@${f.about}` : ''}`).sort();
   assert.deepEqual(facts, ['dislike:clubs', 'like:Khruangbin@music', 'like:Thai@food', 'like:indie rock@music', 'like:ramen@food', 'like:stand-up@comedy']);
   assert.equal(t.a.wantsWeekend(ME), true);
-  assert.deepEqual(t.a.forPage(ME), { weekend: true, watches: [] });
+  assert.deepEqual(t.a.forPage(ME), { weekend: true, reminders: true, watches: [] });
+  t.a.saveTastes(ME, { reminders: false }); assert.equal(t.a.remindersOn(ME), false);
   t.store.close();
 });
 

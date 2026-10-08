@@ -33,5 +33,7 @@ export const RELEASES = [
   { id: '2026-10-08-team-handoffs', date: '2026-10-08', team: true, hold: true, text: 'New in /ops → Handoffs: when I hand something to the team, it shows up there for a helper to take, do and write up, and I text the member the result. Helpers get their own login that only opens that page.' },
   { id: '2026-10-08-watch-for', date: '2026-10-08', hold: true, text: 'Waiting on something? Text me "tell me when…" (like "tell me when Khruangbin plays LA") and I\x27ll keep an eye out and text you when it shows up.' },
   { id: '2026-10-08-weekend-picks', date: '2026-10-08', hold: true, text: 'Want ideas for the weekend? Text "weekend picks on" and every Thursday afternoon I\x27ll send you 2–3 picks based on what you like.' },
-  { id: '2026-10-08-about-you', date: '2026-10-08', hold: true, text: 'Tell me what you\x27re into (music, comedy, food, things you like doing) on your page, and my picks get better. Text "my page" for the link.' }
+  { id: '2026-10-08-about-you', date: '2026-10-08', hold: true, text: 'Tell me what you\x27re into (music, comedy, food, things you like doing) on your page, and my picks get better. Text "my page" for the link.' },
+  { id: '2026-10-08-nature-alerts', date: '2026-10-08', hold: true, text: 'Tide pooler or waterfall chaser? Ask me to watch for daytime low tides near a beach, waterfalls running after a big rain, or news on a page like beach parking or trail closures, and I\x27ll text you when it happens.' },
+  { id: '2026-10-08-plan-reminders', date: '2026-10-08', hold: true, text: 'I now text a quick reminder the evening before and the morning of your plans: when, where and who\x27s coming. Text "no reminders" if you\x27d rather not.' }
 ];

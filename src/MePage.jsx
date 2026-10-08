@@ -114,9 +114,10 @@ const TASTES = [
 function AboutCard({ me, token, onChange }) {
   const [form, setForm] = useState({}), [busy, setBusy] = useState(false), [note, setNote] = useState(''), [err, setErr] = useState('');
   const [flip, setFlip] = useState(null), weekend = flip ?? Boolean(me.alerts?.weekend); // the switch moves at once; reverts if saving fails
+  const [flipR, setFlipR] = useState(null), reminders = flipR ?? me.alerts?.reminders !== false;
   async function save(data, done) {
     setBusy(true); setErr(''); setNote('');
-    try { const d = await call(token, '/tastes', data); onChange(d); done?.(d); } catch (e) { setErr(e.message); } finally { setBusy(false); setFlip(null); }
+    try { const d = await call(token, '/tastes', data); onChange(d); done?.(d); } catch (e) { setErr(e.message); } finally { setBusy(false); setFlip(null); setFlipR(null); }
   }
   const filled = TASTES.some(([k]) => (form[k] || '').trim());
   return <section className="me-card me-about">
@@ -132,6 +133,10 @@ function AboutCard({ me, token, onChange }) {
     <label className="me-switch" htmlFor="weekend-picks">
       <input id="weekend-picks" type="checkbox" checked={weekend} disabled={busy} onChange={e => { const on = e.target.checked; setFlip(on); save({ weekend: on }, () => setNote(on ? 'Weekend picks are on: look for a text Thursday afternoon.' : 'Weekend picks are off.')); }}/>
       <span><strong>Weekend picks</strong><small>A text every Thursday afternoon with 2–3 ideas for the weekend, picked for you.</small></span>
+    </label>
+    <label className="me-switch" htmlFor="plan-reminders">
+      <input id="plan-reminders" type="checkbox" checked={reminders} disabled={busy} onChange={e => { const on = e.target.checked; setFlipR(on); save({ reminders: on }, () => setNote(on ? 'Plan reminders are on.' : 'Plan reminders are off.')); }}/>
+      <span><strong>Plan reminders</strong><small>A text the evening before and the morning of your plans: when, where and who’s coming.</small></span>
     </label>
     {note && <p className="me-muted" role="status">{note}</p>}{err && <p className="error" role="alert">{err}</p>}
   </section>;
@@ -149,7 +154,7 @@ function WatchCard({ me, token, onChange }) {
     <h2>Rall-e is watching for</h2>
     <p className="me-muted">It checks about twice a day and texts you when something turns up. Text “tell me when …” to add more.</p>
     <ul className="me-memory">{list.map(w => <li key={w.id}>
-      <span><small>Near {w.place} · until {new Date(w.until).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small><strong>{w.what}</strong></span>
+      <span><small>{({ low_tide: 'Low tides · ', rain: 'After big rain · ', page: 'Web page · ' })[w.kind] || ''}Near {w.place} · until {new Date(w.until).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small><strong>{w.what}</strong></span>
       <button className="icon-button" disabled={busy === w.id} onClick={() => stop(w.id)} aria-label={`Stop watching for ${w.what}`}><Trash2 size={16}/></button>
     </li>)}</ul>
   </section>;

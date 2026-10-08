@@ -3,7 +3,7 @@
 // All outbound goes through Sms.deliver(), which enforces preview mode, the tester allowlist,
 // STOP, and daily caps. Nothing here talks to Twilio directly.
 import { OFF_WORDS, ON_WORDS } from './whatsnew.mjs';
-import { WEEKEND_OFF, WEEKEND_ON } from './alerts.mjs';
+import { WEEKEND_OFF, WEEKEND_ON, REMINDERS_OFF, REMINDERS_ON } from './alerts.mjs';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { EVENTS, MAX_STOPS, eventById, categoryFrom } from './catalog.mjs';
 import { Agent } from './agent.mjs';
@@ -280,6 +280,8 @@ export class TextFlow {
     if (ON_WORDS.test(text) && this.sms.whatsNew) { this.sms.whatsNew.set(phone, true); this.reply(phone, 'Updates are back on: I\'ll text you when something new goes live.', 'update'); return true; }
     if (WEEKEND_OFF.test(text) && this.sms.alerts) { this.sms.alerts.setWeekend(phone, false); this.reply(phone, 'Done: no more weekend picks. Text "weekend picks on" anytime to get them again.', 'reply'); return true; }
     if (WEEKEND_ON.test(text) && this.sms.alerts) { this.sms.alerts.setWeekend(phone, true); this.reply(phone, 'You\'re on: every Thursday afternoon I\'ll text you 2–3 ideas for the weekend. Text "no weekend picks" to stop.', 'reply'); return true; }
+    if (REMINDERS_OFF.test(text) && this.sms.alerts) { this.sms.alerts.setReminders(phone, false); this.reply(phone, 'Done: no more plan reminders. Text "reminders on" anytime to get them again.', 'reply'); return true; }
+    if (REMINDERS_ON.test(text) && this.sms.alerts) { this.sms.alerts.setReminders(phone, true); this.reply(phone, 'Plan reminders are back on: I\'ll text you the evening before and the morning of your plans.', 'reply'); return true; }
     if (/^help$/i.test(text) || optOutType === 'HELP') { this.reply(phone, this.help(threads[0])); return true; }
     if (/^(android|iphone)[.!]*$/i.test(text) && this.sms.provider === 'sendblue') {
       const android = /android/i.test(text);

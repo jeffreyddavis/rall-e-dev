@@ -115,7 +115,7 @@ export function jsonEvents(data, rule, base, lng) {
       price: price == null || price === '' ? '' : typeof price === 'number' ? (price ? `$${price}` : 'Free') : text(price).slice(0, 40) };
   }).filter(Boolean);
 }
-const pageText = html => String(html).replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<a [^>]*href="([^"]+)"[^>]*>/gi, ' [link $1] ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, '\n')
+export const pageText = html => String(html).replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<a [^>]*href="([^"]+)"[^>]*>/gi, ' [link $1] ').replace(/<br\s*\/?>|<\/(p|div|li|h\d|tr)>/gi, '\n')
   .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/&quot;/g, '"').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 
 export class Sources {
