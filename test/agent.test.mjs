@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../server/store.mjs';
 import { Sms } from '../server/sms.mjs';
+const sys = b => Array.isArray(b.system) ? b.system.map(x => x.text).join('\n\n') : b.system; // the system prompt is cached blocks
 
 const HOST = '+13105550101', MIKE = '+13105550102', DAVE = '+13105550103';
 let n = 0;
@@ -54,8 +55,26 @@ test('the agent plans by text through tools, sends a contact card, and only invi
   assert.equal(first.url, 'https://api.anthropic.com/v1/messages'); assert.equal(first.headers['x-api-key'], 'test-key');
   assert.equal(first.body.model, 'claude-sonnet-5-5'); assert.deepEqual(first.body.output_config, { effort: 'low' });
   assert.deepEqual(first.body.tools.map(x => x.name).filter(n => n !== 'react'), ['start_account']);
-  assert.match(first.body.system, /Catalogue/); assert.equal(first.body.messages[0].role, 'user');
+  assert.match(sys(first.body), /Catalogue/); assert.equal(first.body.messages[0].role, 'user');
+  // Caching: the fixed instructions are one cached block; the time and situation come after it; the conversation is cached too.
+  assert.deepEqual(first.body.system[0].cache_control, { type: 'ephemeral' }); assert.doesNotMatch(first.body.system[0].text, /Right now for them: |\(their local time, |Current situation for the person texting you \(as of/);
+  assert.match(first.body.system[1].text, /Right now for them/); assert.equal(first.body.system[1].cache_control, undefined); assert.deepEqual(first.body.cache_control, { type: 'ephemeral' });
+  assert.equal(sys(t.calls[2].body).split('Right now for them')[0], sys(first.body).split('Right now for them')[0]); // same cached prefix on every call
   assert.ok(t.calls[2].body.tools.some(x => x.name === 'recommend')); // after the account exists, host tools appear
+  t.store.close();
+});
+
+test('if the API ever refuses prompt caching, the call is retried without it and caching stays off', async () => {
+  const t = setup([]), agent = t.sms.flow.agent, bodies = [];
+  agent.fetch = async (url, init) => {
+    const body = JSON.parse(init.body); bodies.push(body);
+    const refuse = 'cache_control' in body;
+    return { ok: !refuse, status: refuse ? 400 : 200, headers: new Map(), json: async () => refuse ? { error: { message: 'cache_control: unexpected field' } } : { content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: {} } };
+  };
+  const req = { model: 'claude-sonnet-5-5', max_tokens: 10, cache_control: { type: 'ephemeral' }, system: [{ type: 'text', text: 'fixed', cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'now' }], messages: [{ role: 'user', content: 'hi' }] };
+  assert.equal((await agent.callClaude(req)).content[0].text, 'ok');
+  assert.equal(bodies.length, 2); assert.equal(JSON.stringify(bodies[1]).includes('cache_control'), false); assert.deepEqual(bodies[1].system.map(b => b.text), ['fixed', 'now']);
+  await agent.callClaude(req); assert.equal(bodies.length, 3); // no second refusal: caching stays off
   t.store.close();
 });
 
@@ -64,7 +83,7 @@ test('guests talk to the agent; group notifications stay deterministic; failures
     tool('start_account', { first_name: 'Alex' }), say('Hi Alex!'),
     tool('make_plan', { event_id: 'dinner' }), body => { assert.match(body.messages.at(-1).content[0].content, /plan page[^\n]*\/n\/[\w-]+/); return say('Dinner at Casa Vera it is. Who is coming?'); },
     tool('invite', { people: [{ name: 'Mike', phone: '3105550102' }, { name: 'Dave', phone: '3105550103' }] }), say('Both invited!'),
-    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know', 'whats_new', 'set_updates', 'book_table', 'update_booking', 'record_purchase', 'my_bookings', 'going_to', 'who_else_going', 'set_going_share', 'not_going', 'share_tip', 'set_favorites', 'favorites', 'remove_favorites', 'friends_places', 'join_friends_plan', 'send_contact_card'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(body.system, /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
+    body => { assert.deepEqual(body.tools.map(x => x.name).filter(n => !['react', 'mention_feature', 'queue_feature', 'log_gap', 'remember', 'forget', 'what_i_know', 'whats_new', 'set_updates', 'book_table', 'update_booking', 'record_purchase', 'my_bookings', 'going_to', 'who_else_going', 'set_going_share', 'not_going', 'share_tip', 'set_favorites', 'favorites', 'remove_favorites', 'friends_places', 'join_friends_plan', 'send_contact_card'].includes(n)), ['rsvp', 'suggest', 'vote', 'get_my_link', 'message_group']); assert.match(sys(body), /INVITED FRIEND \(their name: Mike; host: Alex\)/); return tool('rsvp', { response: 'yes' }); },
     say('You’re in! See you Saturday.'),
     tool('message_group', { text: 'I can drive if anyone needs a ride' }), say('Passed that along to the group.'),
     new Error('network down')
@@ -96,12 +115,12 @@ test('demo operator: Rall-e texts first on a hidden instruction; features are tr
   const t = setup([
     tool('start_account', { first_name: 'Jeff' }), say('Hi Jeff!'),
     body => {
-      const note = body.messages.at(-1).content; assert.match(note, /Behind the scenes.*emoji/s); assert.doesNotMatch(body.system, /Behind the scenes/);
+      const note = body.messages.at(-1).content; assert.match(note, /Behind the scenes.*emoji/s); assert.doesNotMatch(sys(body), /Behind the scenes/);
       return tool('react', { reaction: '🎉' });
     },
-    body => { assert.match(body.system, /Features: none shown yet/); return tool('mention_feature', { feature: 'group_chat', why: 'tip' }); },
+    body => { assert.match(sys(body), /Features: none shown yet/); return tool('mention_feature', { feature: 'group_chat', why: 'tip' }); },
     say('Also, texts to me are private. Start with "tell the group" to reach everyone.'),
-    body => { assert.match(body.system, /already seen: .*reactions/); assert.match(body.system, /Unprompted tips: not now/); return say('Sure thing.'); }
+    body => { assert.match(sys(body), /already seen: .*reactions/); assert.match(sys(body), /Unprompted tips: not now/); return say('Sure thing.'); }
   ]);
   await t.text(HOST, 'hi I am Jeff');
   const before = t.store.db.prepare("SELECT COUNT(*) AS n FROM sms_log WHERE phone=? AND direction='in'").get(HOST).n;
@@ -119,8 +138,8 @@ test('a feature that answers a need is queued while they are mid-setup, then off
   const t = setup([
     tool('start_account', { first_name: 'Dana' }), say('Hi Dana!'),
     tool('queue_feature', { feature: 'vault', reason: 'their sister is vegetarian' }), say('Noted! What’s your sister’s name and number?'),
-    body => { assert.match(body.system, /Queued to bring up .*vault \(their sister is vegetarian\)/); return tool('mention_feature', { feature: 'vault', why: 'need' }); },
-    body => { assert.match(body.system, /Unprompted tips: allowed/); return say('Done! And since your sister is vegetarian, I can keep that on file.'); }
+    body => { assert.match(sys(body), /Queued to bring up .*vault \(their sister is vegetarian\)/); return tool('mention_feature', { feature: 'vault', why: 'need' }); },
+    body => { assert.match(sys(body), /Unprompted tips: allowed/); return say('Done! And since your sister is vegetarian, I can keep that on file.'); }
   ]);
   await t.text(HOST, 'hi I am Dana');
   await t.text(HOST, 'dinner with my sister, she is vegetarian');

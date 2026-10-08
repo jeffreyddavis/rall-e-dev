@@ -26,7 +26,8 @@ export const meter = {
     this.db = db;
     db.exec(`CREATE TABLE IF NOT EXISTS api_calls (day TEXT NOT NULL, provider TEXT NOT NULL, sku TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, provider, sku));
       CREATE TABLE IF NOT EXISTS ai_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS openai_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS openai_usage (day TEXT PRIMARY KEY, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS ai_usage_models (day TEXT NOT NULL, model TEXT NOT NULL, calls INTEGER NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL, cache_read INTEGER NOT NULL, cache_write INTEGER NOT NULL, PRIMARY KEY (day, model));`);
   },
   call(url, headers) {
     try {
@@ -35,10 +36,13 @@ export const meter = {
       if (provider === 'ticketmaster' && headers?.get?.('rate-limit-available')) this.headers.ticketmaster = { available: Number(headers.get('rate-limit-available')), limit: Number(headers.get('rate-limit')), reset: Number(headers.get('rate-limit-reset')), at: Date.now() };
     } catch {}
   },
-  ai(usage = {}, headers) {
+  ai(usage = {}, headers, model = '') {
     if (!this.db) return;
+    const n = [usage.input_tokens || 0, usage.output_tokens || 0, usage.cache_read_input_tokens || 0, usage.cache_creation_input_tokens || 0];
     this.db.prepare('INSERT INTO ai_usage VALUES (?,1,?,?,?,?) ON CONFLICT(day) DO UPDATE SET calls=calls+1, input=input+excluded.input, output=output+excluded.output, cache_read=cache_read+excluded.cache_read, cache_write=cache_write+excluded.cache_write')
-      .run(today(), usage.input_tokens || 0, usage.output_tokens || 0, usage.cache_read_input_tokens || 0, usage.cache_creation_input_tokens || 0);
+      .run(today(), ...n);
+    if (model) this.db.prepare('INSERT INTO ai_usage_models VALUES (?,?,1,?,?,?,?) ON CONFLICT(day, model) DO UPDATE SET calls=calls+1, input=input+excluded.input, output=output+excluded.output, cache_read=cache_read+excluded.cache_read, cache_write=cache_write+excluded.cache_write')
+      .run(today(), String(model).slice(0, 60), ...n);
     const h = k => headers?.get?.(`anthropic-ratelimit-${k}`);
     if (h('requests-limit')) this.headers.anthropic = { requests: [Number(h('requests-remaining')), Number(h('requests-limit'))], input: [Number(h('input-tokens-remaining')), Number(h('input-tokens-limit'))], output: [Number(h('output-tokens-remaining')), Number(h('output-tokens-limit'))], at: Date.now() };
   },
@@ -49,8 +53,12 @@ export const meter = {
   calls(provider, sku, since) { return this.db.prepare(`SELECT COALESCE(SUM(n),0) AS n FROM api_calls WHERE provider=? ${sku ? 'AND sku=?' : ''} AND day>=?`).get(...[provider, ...(sku ? [sku] : []), since]).n; }
 };
 
-// Anthropic list prices per million tokens for the app's model (Sonnet 5.5: $2 in, $10 out, cache hits $0.20, 5-min writes $2.50).
-const PRICE = { input: 2, output: 10, cache_read: 0.2, cache_write: 2.5 };
+// Anthropic list prices per million tokens (input, output, cache hits, 5-minute cache writes), from the pricing page 10-08.
+// Usage logged before per-model tracking (10-08) has no model and is priced as Sonnet 5.5, the texting agent's model.
+const PRICES = { 'claude-sonnet-5-5': { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 }, 'claude-haiku-5-5': { input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125 },
+  'claude-opus-5-5': { input: 4, output: 20, cache_read: 0.2, cache_write: 5 } };
+const priceOf = model => PRICES[model] || PRICES[Object.keys(PRICES).find(k => String(model).startsWith(k))] || PRICES['claude-sonnet-5-5'];
+const cost = (r, p) => (r.input * p.input + r.output * p.output + r.cache_read * p.cache_read + r.cache_write * p.cache_write) / 1e6;
 
 export async function usageReport(sms, env = process.env, fetchImpl = globalThis.fetch) {
   const m = month(), start = `${m}-01`, db = sms.db, cards = [];
@@ -60,7 +68,11 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
   // Claude (the app's API key, not anyone's chat account)
   const ai = db.prepare('SELECT COALESCE(SUM(calls),0) calls, COALESCE(SUM(input),0) input, COALESCE(SUM(output),0) output, COALESCE(SUM(cache_read),0) cache_read, COALESCE(SUM(cache_write),0) cache_write FROM ai_usage WHERE day>=?').get(start);
   const aiToday = db.prepare('SELECT calls, input, output FROM ai_usage WHERE day=?').get(today()) || { calls: 0, input: 0, output: 0 };
-  const est = (ai.input * PRICE.input + ai.output * PRICE.output + ai.cache_read * PRICE.cache_read + ai.cache_write * PRICE.cache_write) / 1e6;
+  const byModel = db.prepare('SELECT model, SUM(calls) calls, SUM(input) input, SUM(output) output, SUM(cache_read) cache_read, SUM(cache_write) cache_write FROM ai_usage_models WHERE day>=? GROUP BY model').all(start);
+  const rest = ['input', 'output', 'cache_read', 'cache_write'].reduce((o, k) => ({ ...o, [k]: Math.max(0, ai[k] - byModel.reduce((s, r) => s + r[k], 0)) }), {});
+  const est = byModel.reduce((s, r) => s + cost(r, priceOf(r.model)), cost(rest, PRICES['claude-sonnet-5-5']));
+  const allIn = ai.input + ai.cache_read + ai.cache_write, cachedPct = allIn ? Math.round(ai.cache_read / allIn * 100) : 0;
+  const modelLine = byModel.length ? `By model this month: ${byModel.sort((a, b) => cost(b, priceOf(b.model)) - cost(a, priceOf(a.model))).map(r => `${r.model.replace('claude-', '')} ${r.calls} calls ~$${cost(r, priceOf(r.model)).toFixed(2)}`).join(', ')}` : null;
   const budget = Number(env.ANTHROPIC_MONTHLY_BUDGET_USD) || 0, rl = meter.headers.anthropic;
   const official = env.ANTHROPIC_ADMIN_KEY ? await safe(async () => {
     const d = await get(`https://api.anthropic.com/v1/organizations/cost_report?starting_at=${start}T00:00:00Z&ending_at=${new Date(Date.now() + 86400000).toISOString().slice(0, 10)}T00:00:00Z`, { headers: { 'x-api-key': env.ANTHROPIC_ADMIN_KEY, 'anthropic-version': '2023-06-01' } });
@@ -69,7 +81,8 @@ export async function usageReport(sms, env = process.env, fetchImpl = globalThis
   const spent = official?.usd ?? est;
   cards.push({ id: 'anthropic', name: 'Claude API (Rall-e’s brain)', status: budget ? level(spent, budget) : 'ok',
     meter: budget ? { used: Math.round(spent * 100) / 100, limit: budget, unit: 'USD this month' } : null,
-    facts: [`${ai.calls} AI calls this month (${aiToday.calls} today)`, `${official?.usd != null ? 'Spend this month' : 'Estimated spend this month'}: $${spent.toFixed(2)}${official?.usd != null ? ' (Anthropic cost report)' : ` (${ai.input.toLocaleString()} input + ${ai.output.toLocaleString()} output tokens at Sonnet 5.5 list prices)`}`,
+    facts: [`${ai.calls} AI calls this month (${aiToday.calls} today)`, `${official?.usd != null ? 'Spend this month' : 'Estimated spend this month'}: $${spent.toFixed(2)}${official?.usd != null ? ' (Anthropic cost report)' : ` (${allIn.toLocaleString()} input + ${ai.output.toLocaleString()} output tokens at list prices)`}`,
+      allIn ? `Cached input: ${cachedPct}% of input tokens this month (cache hits cost a twentieth of normal input on Sonnet)` : null, modelLine,
       rl ? `Rate limit right now: ${rl.requests[0]}/${rl.requests[1]} requests per minute left` : 'Rate limits: shown after the next AI reply',
       official?.error ? `Cost report error: ${official.error}` : !env.ANTHROPIC_ADMIN_KEY ? 'Prepaid credit balance isn’t available by API. Check the Claude Console, and turn on auto-reload so credits can’t run out mid-demo.' : null].filter(Boolean),
     link: 'https://platform.claude.com/settings/billing' });

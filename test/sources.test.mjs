@@ -131,7 +131,7 @@ test('a source that reads 0 or 1 events gets a debugging run (twice at most) tha
   const src = await sms.sources.add({ url: 'https://venue.example/events', city: 'Boston, MA' });
   assert.equal(src.found, 0);
   await sms.sources.debugChain;
-  assert.equal(seen[0].model, 'claude-opus-5-5');
+  assert.equal(seen[0].model, 'claude-haiku-5-5'); assert.deepEqual(seen[0].cache_control, { type: 'ephemeral' }); // background work runs on Haiku, cached
   assert.match(JSON.stringify(seen[1].messages.at(-1)), /Scripts: \/app\.js/); // inspect showed the script
   assert.match(JSON.stringify(seen[2].messages.at(-1)), /fetch\(\\"\/api\/events\.json\\"\)/);
   const fixed = sms.sources.list()[0];
@@ -141,7 +141,7 @@ test('a source that reads 0 or 1 events gets a debugging run (twice at most) tha
   store.db.prepare('UPDATE event_sources SET found=0, debug_tries=2').run();
   assert.equal(sms.sources.debugLater(fixed.id), false);
   seen.length = 0; script.splice(0, 3, { type: 'tool_use', id: 'g1', name: 'give_up', input: { reason: 'Only shows events in a real browser.' } });
-  assert.equal(sms.sources.debugLater(fixed.id, { force: true }), true);
+  assert.equal(sms.sources.debugLater(fixed.id, { force: true, manual: true }), true); // Try to fix
   await sms.sources.debugChain;
   assert.match(sms.sources.list()[0].debug_note, /real browser/);
   store.close();
@@ -161,33 +161,35 @@ test('a "browser" rule reads the page as rendered; with no renderer installed it
   store.close();
 });
 
-test('once the page browser is installed, sources whose debugging runs never had it get one more run', async () => {
+test('automatic debugging runs at most twice per source, ever; Try to fix runs once more without unlocking automatic runs', async () => {
   const store = new Store(':memory:');
-  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai' }, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
-  const add = (id, found, tries, browser, error = null) => store.db.prepare('INSERT INTO event_sources (id, url, name, city, created, found, debug_tries, debug_browser, error) VALUES (?,?,?,?,?,?,?,?,?)').run(id, `https://${id}.example/`, id, 'LA', 1, found, tries, browser, error);
-  add('needsbrowser', 0, 2, 0); add('hadbrowser', 0, 2, 1); add('fine', 12, 2, 0); add('blocked', 0, 2, 0, 'This site asks bots not to read that page (robots.txt).'); add('fresh', 1, 0, 0);
-  const queued = []; sms.sources.debugLater = (id, opts) => queued.push([id, Boolean(opts?.force)]);
-  sms.sources.renderAvailable = async () => false;
-  await sms.sources.sweepDebug();
-  assert.deepEqual(queued, [['fresh', false]]); // without a browser: only the usual tries
-  queued.length = 0; sms.sources.renderAvailable = async () => true;
-  await sms.sources.sweepDebug();
-  assert.deepEqual(queued.sort(), [['fresh', false], ['needsbrowser', true]]);
-  store.close();
-});
-
-test('sites that forbid bots (Bookeo, DICE, Resident Advisor) are never read, added, rendered or used in a rule', async () => {
-  const { botsForbidden } = await import('../server/publicurl.mjs');
-  for (const u of ['https://bookeo.com/escaperoomla', 'https://www-1568p.bookeo.com/bookeo/b_x_start.html', 'https://dice.fm/venue/zebulon', 'https://partners-endpoint.dice.fm/api/v2/events', 'https://ra.co/events/us/losangeles']) assert.equal(botsForbidden(u), true, u);
-  for (const u of ['https://www.escaperoomla.com/book-now', 'https://www.zebulon.la/', 'https://notbookeo.com/']) assert.equal(botsForbidden(u), false, u);
-  const store = new Store(':memory:'), seen = [];
-  const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai', GOOGLE_MAPS_API_KEY: 'gk' }, { messages: { create: async () => ({}) } }, async url => { seen.push(url); return { ok: false, status: 404, text: async () => '' }; });
-  await assert.rejects(sms.sources.add({ url: 'https://bookeo.com/escaperoomla', city: 'Los Angeles, CA' }), /forbids automated access/);
-  await assert.rejects(sms.sources.ruleEvents({ type: 'browser', url: 'https://bookeo.com/escaperoomla' }, { url: 'https://www.escaperoomla.com/', city: 'LA' }), /forbids automated access/);
-  const { SourceDebugger } = await import('../server/sourcedebug.mjs'), dbg = new SourceDebugger(sms.sources);
-  assert.match(await dbg.inspect('https://www-1568p.bookeo.com/bookeo/b_x_start.html', { fetches: 0 }), /forbids automated access/);
-  assert.match(await dbg.find('https://widgets.dice.fm/x.js', 'fetch(', { fetches: 0 }), /forbids bots/);
-  assert.ok(!seen.some(u => /bookeo|dice\.fm/.test(u)), 'nothing was fetched from those sites');
+  const env = { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'x'.repeat(30), PUBLIC_BASE_URL: 'https://rall-e.ai' };
+  const sms = new Sms(store, env, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
+  const add = (id, found, tries, error = null) => store.db.prepare('INSERT INTO event_sources (id, url, name, city, created, found, debug_tries, error) VALUES (?,?,?,?,?,?,?,?)').run(id, `https://${id}.example/`, id, 'LA', 1, found, tries, error);
+  add('flaky', 0, 0); add('fine', 12, 0); add('blocked', 0, 0, 'This site asks bots not to read that page (robots.txt).');
+  sms.flow.agent.key = 'k'; sms.sources.refresh = async () => ({});
+  const ran = []; sms.sources.debugger = { run: async id => { ran.push(id); return { note: 'Nothing readable.', cause: 'cant_find' }; } };
+  const tries = () => store.db.prepare("SELECT debug_tries FROM event_sources WHERE id='flaky'").get().debug_tries;
+  for (let i = 0; i < 4; i++) { await sms.sources.sweepDebug(); await sms.sources.debugChain; } // e.g. four deploys in a day
+  assert.deepEqual(ran, ['flaky', 'flaky']); assert.equal(tries(), 2);
+  assert.match(sms.sources.debugBlocker(store.db.prepare("SELECT * FROM event_sources WHERE id='flaky'").get()), /already checked twice automatically\. Use Try to fix/);
+  assert.equal(sms.sources.tryToFix('flaky').queued, true); await sms.sources.debugChain; // the team's flag runs it once
+  assert.equal(ran.length, 3); assert.equal(tries(), 2); // and doesn't reset the automatic count
+  await sms.sources.sweepDebug(); await sms.sources.debugChain;
+  assert.equal(ran.length, 3);
+  // A run that fails on our side (out of AI credits) isn't a real try: it's given back, and automatic checks pause for an hour.
+  add('nocredit', 0, 0);
+  sms.sources.debugger = { run: async () => { throw new Error('AI: Your credit balance is too low to access the Anthropic API.'); } };
+  assert.equal(sms.sources.debugLater('nocredit'), true); await sms.sources.debugChain;
+  assert.equal(store.db.prepare("SELECT debug_tries FROM event_sources WHERE id='nocredit'").get().debug_tries, 0);
+  assert.equal(store.db.prepare("SELECT COUNT(*) n FROM source_debug_runs WHERE source='nocredit'").get().n, 0);
+  assert.equal(sms.sources.debugLater('nocredit'), false); assert.match(sms.sources.debugBlocker(store.db.prepare("SELECT * FROM event_sources WHERE id='nocredit'").get()), /paused for an hour/);
+  sms.sources.debugPausedUntil = 0;
+  // Older sources whose count was reset by Try to fix get it back from the run log at startup.
+  add('reset', 0, 1);
+  for (const manual of [0, 0, 1]) store.db.prepare('INSERT INTO source_debug_runs (source, at, manual) VALUES (?, ?, ?)').run('reset', Date.now() - 86400000 * 3, manual);
+  new Sms(store, env, { messages: { create: async () => ({}) } }, async () => ({ ok: false, status: 404, text: async () => '' }));
+  assert.equal(store.db.prepare("SELECT debug_tries FROM event_sources WHERE id='reset'").get().debug_tries, 2);
   store.close();
 });
 

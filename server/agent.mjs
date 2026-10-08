@@ -91,6 +91,7 @@ export class Agent {
     this.flow = flow; this.store = flow.store; this.fetch = fetchImpl;
     this.key = env.ANTHROPIC_API_KEY || ''; this.model = env.ANTHROPIC_MODEL || 'claude-sonnet-5-5';
     this.effort = env.ANTHROPIC_EFFORT || 'low'; this.timeout = Number(env.AGENT_TIMEOUT_MS) || 25000;
+    this.backgroundModel = env.ANTHROPIC_BACKGROUND_MODEL || 'claude-haiku-5-5'; // reading venue sites, newsletters, source debugging: about 20x cheaper than Sonnet
     // Backup brain: if Claude is down, the same conversation continues on OpenAI (same prompt, tools and history).
     this.workspace = env.ANTHROPIC_WORKSPACE_ID || ''; // keys not scoped to a workspace must name one
     this.openaiKey = env.OPENAI_API_KEY || ''; this.openaiModel = env.OPENAI_MODEL || 'gpt-6-sol'; this.openaiEffort = env.OPENAI_REASONING_EFFORT ?? 'none'; // Chat Completions only allows function tools with reasoning off on GPT-6
@@ -530,7 +531,7 @@ export class Agent {
   }
   async callOpenAI(body) {
     const text = c => typeof c === 'string' ? c : (c || []).filter(b => b.type === 'text').map(b => b.text).join('\n');
-    const messages = [{ role: 'system', content: body.system }];
+    const messages = [{ role: 'system', content: Array.isArray(body.system) ? body.system.map(b => b.text).join('\n\n') : body.system }];
     for (const m of body.messages) {
       if (m.role === 'user') {
         if (typeof m.content === 'string') { messages.push({ role: 'user', content: m.content }); continue; }
@@ -565,12 +566,16 @@ export class Agent {
   }
   claudeHeaders() { return { 'content-type': 'application/json', 'x-api-key': this.key, 'anthropic-version': '2023-06-01', ...(this.workspace ? { 'anthropic-workspace-id': this.workspace } : {}) }; }
   async callClaude(body) {
+    if (this.noCache) body = { ...body, cache_control: undefined, system: Array.isArray(body.system) ? body.system.map(({ cache_control, ...b }) => b) : body.system };
     const response = await this.fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST', signal: AbortSignal.timeout(this.timeout),
       headers: this.claudeHeaders(), body: JSON.stringify(body)
     });
     const result = await response.json().catch(() => ({}));
-    if (response.ok) meter.ai(result.usage, response.headers);
+    if (response.ok) meter.ai(result.usage, response.headers, body.model);
+    if (response.status === 400 && !this.noCache && /cache/i.test(result?.error?.message || '')) { // insurance: never let caching break replies
+      console.error(`Prompt caching refused (${result.error.message}); continuing without it.`); this.noCache = true; return this.callClaude(body);
+    }
     if (!response.ok) throw Object.assign(new Error(`Claude API ${response.status}: ${result?.error?.message || 'error'}`), { status: response.status });
     return result;
   }
@@ -603,11 +608,14 @@ export class Agent {
     // System prompt and tools are fixed for the whole reply (Claude's thinking is bound to them).
     // Changes made by tools come back in tool results; the next text gets a fresh snapshot.
     const ctx0 = this.context(phone), now = localNow(this.tzFor(phone)), today = `${now.label}, ${now.daypart} (their local time, ${now.tz}; today is ${now.date})`;
-    const system = `${SYSTEM}\n\nRight now for them: ${today}.\n\n${this.discovery.enabled ? DISCOVERY : `Live search is off: use only this sample catalogue for Hollywood, Los Angeles (fictional; say "sample" for prices).\nCatalogue (id: details):\n${catalogue()}`}\n\nCurrent situation for the person texting you (as of their latest text):\n${this.state(ctx0)}`;
+    // The fixed instructions come first and are cached (cache hits cost a twentieth of normal input); what changes per text goes after.
+    const fixed = `${SYSTEM}\n\n${this.discovery.enabled ? DISCOVERY : `Live search is off: use only this sample catalogue for Hollywood, Los Angeles (fictional; say "sample" for prices).\nCatalogue (id: details):\n${catalogue()}`}`;
+    const system = [{ type: 'text', text: fixed, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: `Right now for them: ${today}.\n\nCurrent situation for the person texting you (as of their latest text):\n${this.state(ctx0)}` }];
     const tools = this.tools(ctx0);
     const state = {}; // once a reply falls back to OpenAI it finishes there (the two can't share a half-finished turn)
     for (let round = 0; round < 6; round++) {
-      const result = await this.call({ model: this.model, max_tokens: 1200, output_config: { effort: this.effort }, system, tools, messages }, state);
+      const result = await this.call({ model: this.model, max_tokens: 1200, output_config: { effort: this.effort }, cache_control: { type: 'ephemeral' }, system, tools, messages }, state); // cache_control: the conversation so far is cached too
       messages.push({ role: 'assistant', content: result.content });
       const uses = result.content.filter(b => b.type === 'tool_use');
       if (result.stop_reason !== 'tool_use' || !uses.length) {

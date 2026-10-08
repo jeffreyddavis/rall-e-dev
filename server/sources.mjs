@@ -12,6 +12,8 @@ import { isPublicUrl, botsForbidden } from './publicurl.mjs';
 export { isPublicUrl, botsForbidden };
 
 const DAY = 86400000, UA = 'Rall-e event finder (+https://rall-e.ai)';
+// Debugging-run failures that are on our side (the AI account), not the source's: they don't use up an automatic try.
+const AI_ACCOUNT_ERROR = /credit balance|billing|api key|overloaded|rate.?limit|^AI: (401|403|429|5\d\d)\b|fetch failed|timed? ?out|aborted/i;
 const short = v => createHash('sha256').update(String(v)).digest('base64url').slice(0, 10);
 const CATEGORIES = ['music', 'comedy', 'sports', 'theatre', 'arts', 'nightlife', 'dinner', 'museums', 'nature', 'movies', 'fitness', 'community', 'event'];
 const guessCategory = text => {
@@ -129,6 +131,8 @@ export class Sources {
     try { this.db.exec('ALTER TABLE source_debug_runs ADD COLUMN manual INTEGER NOT NULL DEFAULT 0'); } catch {}
     this.debugQueue = new Set(); this.debugChain = Promise.resolve();
     this.debugDaily = Number(env.SOURCE_DEBUG_DAILY || 40); this.debugManual = Number(env.SOURCE_DEBUG_MANUAL || 30);
+    // Try to fix used to reset the try count, which let automatic runs repeat. Recount them from the run log (never lowers it).
+    try { this.db.exec('UPDATE event_sources SET debug_tries = MAX(debug_tries, (SELECT COUNT(*) FROM source_debug_runs r WHERE r.source = event_sources.id AND r.manual = 0))'); } catch {}
     for (const r of this.db.prepare('SELECT data FROM curated_events WHERE day >= ?').all(new Date(Date.now() - DAY).toISOString().slice(0, 10))) registerEvent(JSON.parse(r.data));
   }
   get discovery() { return this.sms.discovery; }
@@ -302,7 +306,8 @@ export class Sources {
     if (!src || src.url.startsWith('rall-e:')) return 'There is nothing to check for this source.';
     if (this.debugQueue.has(src.id)) return 'It is already being checked.';
     if (!this.debugger || !this.sms.flow?.agent?.key) return 'The AI isn\x27t set up on this server.';
-    if (!force && src.debug_tries >= 2) return 'It was already checked twice.';
+    if (!manual && src.debug_tries >= 2) return 'It was already checked twice automatically. Use Try to fix to check it again.';
+    if (!manual && this.debugPausedUntil > Date.now()) return 'Automatic checks are paused for an hour: Rall-e\u2019s AI account had a problem (for example, out of credits).';
     const r = this.runs(manual);
     if (!r.left) {
       const mins = Math.max(1, Math.round((r.freesAt - Date.now()) / 60000)), when = mins < 90 ? `${mins} minutes` : `${Math.round(mins / 60)} hours`;
@@ -319,16 +324,21 @@ export class Sources {
     const ahead = this.debugQueue.size - 1, left = this.runs(true).left;
     return { queued: true, message: `${ahead ? `Queued behind ${ahead} other check${ahead > 1 ? 's' : ''}.` : 'Trying now. It takes about a minute.'} (${left} Try to fix left in the last 24 hours.)` };
   }
-  // Queue one debugging run (server/sourcedebug.mjs), at most twice per source unless forced (Try to fix, browser re-run).
+  // Queue one debugging run (server/sourcedebug.mjs). Automatic runs: at most twice per source, ever (debug_tries counts
+  // only those, and nothing resets it). After that only the team's Try to fix (manual) runs one.
   debugLater(id, { force = false, manual = false } = {}) {
     const src = this.db.prepare('SELECT * FROM event_sources WHERE id=?').get(id);
     if (this.debugBlocker(src, force, manual)) return false;
-    this.db.prepare('UPDATE event_sources SET debug_tries=?, debug_at=? WHERE id=?').run(force ? 1 : src.debug_tries + 1, Date.now(), id);
-    this.db.prepare('INSERT INTO source_debug_runs (source, at, manual) VALUES (?, ?, ?)').run(id, Date.now(), manual ? 1 : 0);
+    this.db.prepare('UPDATE event_sources SET debug_tries=debug_tries+?, debug_at=? WHERE id=?').run(manual ? 0 : 1, Date.now(), id);
+    const runId = this.db.prepare('INSERT INTO source_debug_runs (source, at, manual) VALUES (?, ?, ?)').run(id, Date.now(), manual ? 1 : 0).lastInsertRowid;
     this.debugQueue.add(id);
     this.debugChain = this.debugChain.then(async () => {
       try {
-        const result = await this.debugger.run(id).catch(e => ({ note: `The check failed: ${String(e.message).slice(0, 120)}`, cause: 'error' }));
+        const result = await this.debugger.run(id).catch(e => ({ note: `The check failed: ${String(e.message).slice(0, 120)}`, cause: 'error', ours: AI_ACCOUNT_ERROR.test(e.message) }));
+        if (result.ours && !manual) { // our AI account failed (out of credits, outage): that wasn't a real try, so it doesn't count; wait an hour
+          this.db.prepare('UPDATE event_sources SET debug_tries=MAX(0, debug_tries-1) WHERE id=?').run(id);
+          this.db.prepare('DELETE FROM source_debug_runs WHERE rowid=?').run(runId); this.debugPausedUntil = Date.now() + 3600000;
+        }
         if (result?.saved) await this.refresh(id, { debug: false }).catch(() => {});
         else this.db.prepare('UPDATE event_sources SET debug_note=? WHERE id=?').run(String(result?.note || 'No way to read its events found.').slice(0, 300), id);
         // What /ops reports: fixed, or why not (forbidden_site, robots, login, no_upcoming, cant_find, error).
@@ -401,7 +411,7 @@ export class Sources {
   // Claude reads a page that has no structured event data.
   async extract(text, src) {
     const agent = this.sms.flow.agent; if (!agent?.key) return [];
-    const body = { model: agent.model, max_tokens: 16000, system: 'You extract upcoming public events from web page text for an event-discovery app. Only include real, specific events with a date. Never invent details. Always answer by calling save_events exactly once (with an empty list if the page has no events).',
+    const body = { model: agent.backgroundModel || agent.model, max_tokens: 16000, system: 'You extract upcoming public events from web page text for an event-discovery app. Only include real, specific events with a date. Never invent details. Always answer by calling save_events exactly once (with an empty list if the page has no events).',
       tools: [{ name: 'save_events', description: 'Save the events found on the page.', input_schema: { type: 'object', properties: { events: { type: 'array', maxItems: 60, items: { type: 'object', properties: {
         title: { type: 'string' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: 'HH:MM 24h, or empty' }, venue: { type: 'string' }, address: { type: 'string' },
         price: { type: 'string', description: 'e.g. "$20", "Free", or empty' }, url: { type: 'string', description: 'Link to the event if the page has one' }, description: { type: 'string', description: 'One sentence' },
@@ -412,7 +422,7 @@ export class Sources {
       headers: agent.claudeHeaders(), body: JSON.stringify(body) });
     const result = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(`AI reader: ${result?.error?.message || r.status}`);
-    meter.ai(result.usage, r.headers);
+    meter.ai(result.usage, r.headers, body.model);
     return result.content?.find(c => c.type === 'tool_use')?.input?.events || [];
   }
   async shape(e, src) {
@@ -443,9 +453,8 @@ export class Sources {
     return mixed;
   }
   async sweepDebug() {
-    const browser = await this.renderAvailable();
     for (const s of this.db.prepare("SELECT id, debug_tries, debug_browser FROM event_sources WHERE active=1 AND url NOT LIKE 'rall-e:%' AND found<=1 AND (error IS NULL OR (error NOT LIKE '%robots.txt%' AND error NOT LIKE '%forbids automated access%'))").all()) {
-      if (s.debug_tries < 2) this.debugLater(s.id); else if (browser && !s.debug_browser) this.debugLater(s.id, { force: true });
+      if (s.debug_tries < 2) this.debugLater(s.id); // never more than twice automatically, even when the page browser becomes available
     }
   }
   schedule() {

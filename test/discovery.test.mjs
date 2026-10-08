@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from '../server/store.mjs';
 import { Sms } from '../server/sms.mjs';
 import { eventById } from '../server/catalog.mjs';
+const sys = b => Array.isArray(b.system) ? b.system.map(x => x.text).join('\n\n') : b.system; // the system prompt is cached blocks
 
 const ME = '+13105550101', MIKE = '+13105550102';
 const TM = { _embedded: { events: [{ id: 'G5vYZ9', name: 'Jazz Night', url: 'https://tm.example/jazz', dates: { start: { localDate: '2026-10-03', localTime: '20:00:00', dateTime: '2026-10-04T00:00:00Z' } },
@@ -65,9 +66,9 @@ test('the agent asks for location, saves it, searches real listings and plans on
   const say = text => ({ stop_reason: 'end_turn', content: [{ type: 'text', text }] });
   const use = (name, input) => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: `tu${step}`, name, input }] });
   const script = [
-    use('start_account', { first_name: 'Jeff' }), body => { assert.match(body.system, /Location: unknown/); assert.ok(body.tools.some(x => x.name === 'find_things')); assert.ok(!body.tools.some(x => x.name === 'recommend')); assert.ok(!/Casa Vera/.test(body.system)); return say('Hi Jeff! Where are you based?'); },
+    use('start_account', { first_name: 'Jeff' }), body => { assert.match(sys(body), /Location: unknown/); assert.ok(body.tools.some(x => x.name === 'find_things')); assert.ok(!body.tools.some(x => x.name === 'recommend')); assert.ok(!/Casa Vera/.test(sys(body))); return say('Hi Jeff! Where are you based?'); },
     use('set_location', { place: '44308' }), use('find_things', { what: 'live music', days: 7 }), body => { const r = body.messages.at(-1).content[0].content; assert.match(r, /Jazz Night — Blue Room, Akron, OH\. Sat, Oct 3 · 8:00 PM\. \$25–\$60/); return say('Jazz Night at the Blue Room Sat 8 PM ($25–60) — want it?'); },
-    body => { assert.doesNotMatch(JSON.stringify(body.messages), /tm_/); return use('make_plan', { event_id: /(tm_[\w-]+): Jazz/.exec(body.system)[1] }); }, say('Done! Who should I invite?')
+    body => { assert.doesNotMatch(JSON.stringify(body.messages), /tm_/); return use('make_plan', { event_id: /(tm_[\w-]+): Jazz/.exec(sys(body))[1] }); }, say('Done! Who should I invite?')
   ];
   const t = setup({ ANTHROPIC_API_KEY: 'k' }, { anthropic: body => { step++; const next = script.shift(); return typeof next === 'function' ? next(body) : next; } });
   await t.sms.simulate(ME, "hi I'm Jeff");

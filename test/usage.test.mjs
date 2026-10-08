@@ -22,6 +22,19 @@ test('usage report: counts our API calls and AI tokens, reads provider accounts,
   store.close();
 });
 
+test('usage report: spend is priced per model, and the share of cached input is shown', async () => {
+  const store = new Store(':memory:');
+  const env = { SMS_MODE: 'preview', ANTHROPIC_MONTHLY_BUDGET_USD: '100', PUBLIC_BASE_URL: 'https://rall-e.ai' }, fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({}) });
+  const sms = new Sms(store, env, undefined, fetchImpl);
+  meter.ai({ input_tokens: 1_000_000, output_tokens: 1_000_000, cache_read_input_tokens: 9_000_000 }, new Map(), 'claude-sonnet-5-5'); // $2 + $10 + $0.90
+  meter.ai({ input_tokens: 10_000_000, output_tokens: 1_000_000 }, new Map(), 'claude-haiku-5-5'); // $1 + $0.50
+  const card = (await usageReport(sms, env, fetchImpl)).cards.find(c => c.id === 'anthropic');
+  assert.equal(card.meter.used, 14.4);
+  assert.match(card.facts.join(' '), /Cached input: 45% of input tokens/);
+  assert.match(card.facts.join(' '), /By model this month: sonnet-5-5 1 calls ~\$12\.90, haiku-5-5 1 calls ~\$1\.50/);
+  store.close();
+});
+
 test('demo console roles: the viewer key can only look; the operator key can act; wrong keys are refused', () => {
   const store = new Store(':memory:');
   const sms = new Sms(store, { SMS_MODE: 'preview', SMS_OPERATOR_KEY: 'o'.repeat(30), OPS_VIEWER_KEY: 'v'.repeat(30) });

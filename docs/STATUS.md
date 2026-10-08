@@ -1,6 +1,6 @@
 # Rall-e status
 
-_Last updated: 2026-10-05. Update this file with every round of work (see AGENTS.md)._
+_Last updated: 2026-10-08. Update this file with every round of work (see AGENTS.md)._
 
 ## Live state
 - **Site:** https://rall-e.ai. It's the texting prototype in LIVE mode for testers and people who opted in. Web signup and share pages are public.
@@ -13,7 +13,7 @@ _Last updated: 2026-10-05. Update this file with every round of work (see AGENTS
 - **Channels:**
   - iMessage: Sendblue dedicated line +1 310-307-6383 ($100/month; inbound-first).
   - SMS/MMS: Twilio +1 415-792-4712, a Sole Proprietor A2P 10DLC campaign (about 1 msg/sec; about 3k segments/day across carriers).
-- **AI:** Claude `claude-sonnet-5-5` (Messages API, tool loop). Backup: OpenAI `gpt-6-sol` with `reasoning_effort: none`, tested in a simulated outage.
+- **AI:** Claude `claude-sonnet-5-5` for texting (Messages API, tool loop, prompt caching on). Background work (reading venue sites and newsletters, source debugging) runs on `claude-haiku-5-5` (`ANTHROPIC_BACKGROUND_MODEL`; `SOURCE_DEBUG_MODEL` overrides the debugger, e.g. `claude-sonnet-5-5` if fixes get worse). Backup: OpenAI `gpt-6-sol` with `reasoning_effort: none`, tested in a simulated outage.
 - **Discovery:**
   - Ticketmaster (free tier: only about a third of events carry prices), Google Places + photos, SerpApi showtimes (free, 250/month).
   - JamBase live music (trial key, 09-30).
@@ -64,6 +64,7 @@ _Last updated: 2026-10-05. Update this file with every round of work (see AGENTS
 - **Ideas:** real iMessage group chats (Sendblue groups), travel times, reservations/tickets, SeatGeek/Gracenote once keys arrive, Donovan's frosted-glass spec, and watching the SerpApi quota.
 
 ## Change log (newest first)
+- **10-08, cheaper AI (credits ran out):** the API key's prepaid credit hit zero; replies are on the OpenAI backup until it's topped up. Spend was about $58 over 10 days, all priced as Sonnet, though the source debugger actually ran on Opus 5.5 (twice Sonnet's price) and hit its 40-run cap on deploy days. Changes: (1) **prompt caching** for the texting agent: the system prompt is now two blocks, the fixed instructions (cached) and the per-text time and situation, plus top-level automatic caching for the conversation; cache hits cost a twentieth of Sonnet input. If the API ever refuses the caching fields, the call retries without them and caching stays off (`noCache`). (2) **Haiku 5.5 for background work** ($0.10/$0.50 per million vs $2/$10): venue-page and newsletter reading and the source debugger (also cached per run). (3) **Source debugging: at most two automatic runs per source, ever.** Try to fix used to reset the count, and the startup sweep forced extra browser runs, so deploys re-queued sources. Now `debug_tries` counts automatic runs only and never resets; Try to fix still runs one on request without unlocking more; the count is recounted from `source_debug_runs` at startup. A run that fails on our AI account (out of credits, outage) doesn't count and pauses automatic runs for an hour; 8 runs that failed on billing today were given back (backup `rally.pre-debugrefund-20261008.sqlite`). (4) **/ops Usage prices per model** (`ai_usage_models`, from 10-08) and shows the share of cached input; Sonnet's cache-hit price corrected to $0.10. **Not yet verified live:** no Claude credits to test with; after the top-up, check /ops Usage for a non-zero cached share and Haiku calls.
 - **10-06, Rall-e's name and icon:** phones only show them once the contact card is saved, and the card goes out once, at someone's first text. People who joined before the iMessage line got a card without the 310 number, and anyone who didn't tap "Create New Contact" sees a plain number (Donovan, others; Mike saved his). New `send_contact_card` tool: "send me your contact card", or mentioning Rall-e shows as a number, re-sends the current card (both numbers, the icon) with a one-line how-to. Apple's branded sender (Messages for Business) isn't available to us, so the card is the way.
 - **10-06, Donovan joins the core team:** added to `SMS_ALLOWED_RECIPIENTS` (4 numbers now) and deployed, so he can text sources and ideas straight in (`add_source`, `add_idea`) and gets team-only updates. As a core tester he counts as a member from the start, so his next update text catches him up on past notes he never got (one combined text).
 - **10-06, trial countdowns on /ops Usage:** `SERVICE_TRIALS` in `.env` (ids as on the cards, `id=YYYY-MM-DD`, comma-separated; in the deploy whitelist) puts "Trial ends Oct 15 (in 9 days)" on each service's card and a Trials card listing them soonest first. Yellow at 7 days, red at 2 (which also raises the "before a demo" banner). JamBase's own quota check fills its date when it reports a trial plan. Set now: JamBase (Oct 15) and Google Maps (Dec 28); every other service is free or paid.

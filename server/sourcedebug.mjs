@@ -32,7 +32,7 @@ Rules: only public data, as any visitor's browser gets it. Never use API keys, t
 
 export class SourceDebugger {
   constructor(sources, env = process.env) {
-    this.sources = sources; this.model = env.SOURCE_DEBUG_MODEL || 'claude-opus-5-5';
+    this.sources = sources; this.model = env.SOURCE_DEBUG_MODEL || ''; // default: the agent's background model (Haiku); set claude-sonnet-5-5 if fixes get worse
   }
   get agent() { return this.sources.sms.flow?.agent; }
   async get(url) {
@@ -109,10 +109,10 @@ export class SourceDebugger {
     const state = { fetches: 0 }, messages = [{ role: 'user', content: `Source "${src.name}" in ${src.city}: ${src.url}\nOur reader found ${src.found} upcoming event(s)${src.error ? ` (${src.error})` : ''}${src.kind ? `, reading it as: ${src.kind}` : ''}.${src.rule ? ` Its current saved rule: ${src.rule}` : ''}\nToday is ${new Date().toISOString().slice(0, 10)}. ${browser ? 'The render tool (a real browser) is available. ' : 'No browser here: rule type "browser" is unavailable. '}Start by inspecting the page.` }];
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       const r = await agent.fetch('https://api.anthropic.com/v1/messages', { method: 'POST', signal: AbortSignal.timeout(180000), headers: agent.claudeHeaders(),
-        body: JSON.stringify({ model: this.model, max_tokens: 4000, system: SYSTEM, tools, messages }) });
+        body: JSON.stringify({ model: this.model || agent.backgroundModel || agent.model, max_tokens: 4000, cache_control: { type: 'ephemeral' }, system: SYSTEM, tools, messages }) }); // each turn rereads the run so far from cache
       const result = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(`AI: ${result?.error?.message || r.status}`);
-      meter.ai(result.usage, r.headers);
+      meter.ai(result.usage, r.headers, this.model || agent.backgroundModel || agent.model);
       messages.push({ role: 'assistant', content: result.content });
       const uses = (result.content || []).filter(c => c.type === 'tool_use');
       if (!uses.length) return { note: (result.content || []).find(c => c.type === 'text')?.text?.slice(0, 300) || 'Stopped without a rule.' };
