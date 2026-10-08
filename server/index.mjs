@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Store, fail, clean } from './store.mjs';
 import { conversationReply } from './ai.mjs';
 import { Sms, normalize as normalizePhone } from './sms.mjs';
+import { helperAllowed } from './handoffs.mjs';
 import { Signup } from './signup.mjs';
 import { FEATURES, featureById } from './features.mjs';
 import { usageReport } from './usage.mjs';
@@ -226,7 +227,31 @@ const server = http.createServer(async (req, res) => {
         // Demo operator console: see real conversations and have Rall-e show off a feature to someone. Operator key only.
         // Behind the proxy every request comes from 127.0.0.1, so lockouts are per real client IP.
         const opsIp = String(req.headers['x-forwarded-for'] || '').split(',').pop().trim() || req.socket.remoteAddress;
-        const role = sms.opsRole(req.headers.authorization?.replace(/^Bearer /, ''), opsIp);
+        const who = sms.opsWho(req.headers.authorization?.replace(/^Bearer /, ''), opsIp), role = who.role;
+        // Helpers (their own keys) reach only the handoff queue; every other route answers 404 for them.
+        if (role === 'helper' && !helperAllowed(url.pathname)) fail(404, 'Not found.');
+        if (url.pathname === '/api/ops/me' && req.method === 'GET') return json(res, 200, role === 'helper' ? { role, name: who.helper.name } : role === 'operator' ? { role } : {});
+        // Handoffs: helpers and the operator work the queue; the viewer key can look. Helper accounts are operator-only.
+        if (url.pathname === '/api/ops/handoffs') {
+          const me = role === 'helper' ? who.helper : role === 'operator' ? { id: 'operator', name: 'Operator' } : null;
+          const out = extra => json(res, 200, { handoffs: sms.handoffs.list(), ...(me ? { me: { id: me.id, name: me.name } } : { readOnly: true }), ...(role === 'operator' ? { helpers: sms.handoffs.helpers() } : {}), ...extra });
+          if (req.method === 'GET') return out();
+          if (req.method !== 'POST' || !me) fail(404, 'Not found.');
+          const input = await body(req), id = String(input.id || ''), h = sms.handoffs;
+          if (input.action === 'claim') h.claim(id, me); else if (input.action === 'release') h.release(id, me);
+          else if (input.action === 'reveal') return out(h.reveal(id, me));
+          else if (input.action === 'resolve') h.resolve(id, me, { outcome: input.outcome, result: input.result, note: input.note });
+          else if (input.action === 'cancel' && role === 'operator') h.cancel(id, me, input.reason);
+          else fail(400, 'Unknown action.');
+          return out();
+        }
+        if (url.pathname === '/api/ops/helpers') {
+          if (role !== 'operator' || req.method !== 'POST') fail(404, 'Not found.');
+          const input = await body(req); let made = null;
+          if (input.add) made = sms.handoffs.addHelper(input.add); else sms.handoffs.setHelper(String(input.id || ''), { active: Boolean(input.active) });
+          if (made) console.log(`Helper added: ${made.name}`);
+          return json(res, 200, { helpers: sms.handoffs.helpers(), ...(made ? { made } : {}) });
+        }
         // Both keys can have Rall-e show someone a feature (Mike and Marc demo with it); the rest stays operator-only.
         const features = FEATURES.map(({ id, label, pitch }) => ({ id, label, pitch }));
         if (url.pathname === '/api/ops/people' && req.method === 'GET') return json(res, 200, role === 'operator' ? { role, people: sms.opsPeople(), features, live: sms.live } : { people: sms.opsPeople(), features }); // the dashboard key sees no hint of operator-only controls

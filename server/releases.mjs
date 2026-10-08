@@ -28,5 +28,7 @@ export const RELEASES = [
   { id: '2026-10-05-music-mix', date: '2026-10-05', hold: true, text: 'Live music picks now mix small local shows and bigger names from all our sources, with ticket prices shown when the venue lists them.' },
   { id: '2026-10-06-screenshot-plan', date: '2026-10-06', hold: true, text: 'Saw something fun? Text me a screenshot or a flyer and I\x27ll turn it into a plan you can invite friends to.' },
   { id: '2026-10-06-friends-places', date: '2026-10-06', hold: true, text: 'Traveling? Ask me "where do my friends go in Austin?" and I\x27ll show your friends\x27 favorite spots there, with a page you can share.' },
-  { id: '2026-10-06-friends-going', date: '2026-10-06', hold: true, text: 'When I suggest something, I\x27ll tell you which friends are going (if they share it). Say "I\x27m in" and I\x27ll add you to their plan.' }
+  { id: '2026-10-06-friends-going', date: '2026-10-06', hold: true, text: 'When I suggest something, I\x27ll tell you which friends are going (if they share it). Say "I\x27m in" and I\x27ll add you to their plan.' },
+  { id: '2026-10-08-handoffs', date: '2026-10-08', hold: true, text: 'If I can\x27t get something done myself, like a table the booking link and my call couldn\x27t get, I can now hand it to a person on the Rall-e team. They\x27ll take care of it and I\x27ll text you how it went.' },
+  { id: '2026-10-08-team-handoffs', date: '2026-10-08', team: true, hold: true, text: 'New in /ops → Handoffs: when I hand something to the team, it shows up there for a helper to take, do and write up, and I text the member the result. Helpers get their own login that only opens that page.' }
 ];

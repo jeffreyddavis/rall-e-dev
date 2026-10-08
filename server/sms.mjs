@@ -9,6 +9,7 @@ import { Bookings } from './bookings.mjs';
 import { VoiceCalls } from './voice.mjs';
 import { Going } from './going.mjs';
 import { Ideas } from './ideas.mjs';
+import { Handoffs } from './handoffs.mjs';
 import { Newsletters } from './newsletters.mjs';
 import { Favorites } from './favorites.mjs';
 import twilio from 'twilio';
@@ -88,6 +89,7 @@ export class Sms {
     this.voice = new VoiceCalls(this, env, fetchImpl);
     this.going = new Going(this);
     this.ideas = new Ideas(this);
+    this.handoffs = new Handoffs(this, env, normalize); // human helpers: tasks Rall-e couldn't finish (/ops Handoffs)
     this.newsletters = new Newsletters(this, env); // events@rall-e.ai via Postmark
     this.favorites = new Favorites(this);
     this.memory = new Memory(this); this.memory.attach(store); try { this.memory.migrate(); } catch (e) { console.error('Memory migration:', e.message); }
@@ -110,7 +112,13 @@ export class Sms {
     this.failedAuth.delete(source);
   }
   // Demo console roles: the operator key can do everything; the viewer key (OPS_VIEWER_KEY, for the business side)
-  // can only look (conversations and usage). Returns 'operator' | 'viewer'.
+  // can only look (conversations and usage); a helper key (one per helper, made in /ops) reaches only the handoff queue.
+  // Returns { role: 'operator' | 'viewer' | 'helper', helper: { id, name } | null }.
+  opsWho(value, source = 'local') {
+    const helper = this.handoffs?.byKey(value);
+    if (helper) { if (this.failedAuth.get(source)?.until > Date.now()) fail(429, 'Wait a minute before trying again.'); this.failedAuth.delete(source); return { role: 'helper', helper }; }
+    return { role: this.opsRole(value, source), helper: null };
+  }
   opsRole(value, source = 'local') {
     const viewer = this.env.OPS_VIEWER_KEY || '';
     if (viewer.length >= 24 && value && timingSafeEqual(Buffer.from(digest(value)), Buffer.from(digest(viewer)))) {

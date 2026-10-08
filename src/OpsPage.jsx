@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3, CalendarRange, Receipt, Lightbulb, Megaphone } from 'lucide-react';
+import { LoaderCircle, Send, Sparkles, Check, ArrowLeft, MessageSquareText, RefreshCw, Gauge, Users, ExternalLink, Trash2, BarChart3, CalendarRange, Receipt, Lightbulb, Megaphone, Handshake, LogOut } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './ops.css';
 import Insights from './Insights.jsx';
@@ -7,6 +7,7 @@ import SourcesTab from './SourcesTab.jsx';
 import TransactionsTab from './TransactionsTab.jsx';
 import IdeasTab from './IdeasTab.jsx';
 import ReleasesTab from './ReleasesTab.jsx';
+import HandoffsTab from './HandoffsTab.jsx';
 
 // Dashboard (/ops): live conversations and service usage. Both keys can have Rall-e show someone a feature (the team
 // demos with it); the operator key also gets free-form instructions, exact texts, wipes and release-note approval.
@@ -23,19 +24,24 @@ export default function OpsPage() {
   const [wipe, setWipe] = useState(null), [wipeConfirm, setWipeConfirm] = useState('');
   const [insights, setInsights] = useState(null), [loadingInsights, setLoadingInsights] = useState(false);
   const [tab, setTab] = useState('people'), [usage, setUsage] = useState(null), [loadingUsage, setLoadingUsage] = useState(false);
+  const [me, setMe] = useState(null), [openHandoffs, setOpenHandoffs] = useState(0); // me: { role: 'helper', name } for helper keys
   async function call(path, input) {
     const r = await fetch(`/api/ops/${path}`, { method: input ? 'POST' : 'GET', headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' }, ...(input ? { body: JSON.stringify(input) } : {}) });
     const d = await r.json(); if (r.status === 401 || r.status === 403 && /key|operator|password/i.test(d.error || '')) { setKey(''); try { sessionStorage.removeItem('rall-e-ops'); } catch {} }
     if (!r.ok) throw new Error(d.error); return d;
   }
-  useEffect(() => { if (!key) return; let on = true; const tick = () => call('people').then(d => on && setData(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 5000); return () => { on = false; clearInterval(t); }; }, [key]);
+  // Who this key is, first: a helper key only ever gets the handoff queue.
+  useEffect(() => { setMe(null); if (!key) return; call('me').then(setMe).catch(e => setError(e.message)); }, [key]);
+  const helperKey = me?.role === 'helper';
+  useEffect(() => { if (!key || !me || helperKey) return; let on = true; const tick = () => call('people').then(d => on && setData(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 5000); return () => { on = false; clearInterval(t); }; }, [key, me]);
   useEffect(() => { if (!key || !phone) return; let on = true; const tick = () => call(`thread?phone=${encodeURIComponent(phone)}`).then(d => on && setThread(d)).catch(e => on && setError(e.message)); tick(); const t = setInterval(tick, 2500); return () => { on = false; clearInterval(t); }; }, [key, phone]);
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }); }, [thread?.messages?.length]);
   const loadInsights = () => { setLoadingInsights(true); return call('insights').then(setInsights).catch(e => setError(e.message)).finally(() => setLoadingInsights(false)); };
   useEffect(() => { if (key && tab === 'insights') loadInsights(); }, [key, tab]);
   const loadUsage = () => { setLoadingUsage(true); return call('usage').then(setUsage).catch(e => setError(e.message)).finally(() => setLoadingUsage(false)); };
   // Usage: on open, then every 2 minutes (it calls provider APIs, so not too often). Also feeds the header alert.
-  useEffect(() => { if (!key) return; loadUsage(); const t = setInterval(loadUsage, 120000); return () => clearInterval(t); }, [key]);
+  useEffect(() => { if (!key || !me || helperKey) return; loadUsage(); const t = setInterval(loadUsage, 120000); return () => clearInterval(t); }, [key, me]);
+  useEffect(() => { if (helperKey) document.title = `${openHandoffs ? `(${openHandoffs}) ` : ''}Rall-e handoffs`; }, [helperKey, openHandoffs]);
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(''), 3500); return () => clearTimeout(t); }, [toast]);
 
   if (!key) return <main className="ops"><header className="ops-top"><Wordmark/><span>Dashboard</span></header>
@@ -44,6 +50,12 @@ export default function OpsPage() {
       <input type="password" value={draftKey} onChange={e => setDraftKey(e.target.value)} autoFocus placeholder="Access key"/>
       <button className="button primary" disabled={draftKey.length < 24}>Open dashboard</button>{error && <p className="error">{error}</p>}
     </form></main>;
+
+  // Helpers: just the queue, with their name and a way to sign out.
+  if (helperKey) return <main className="ops"><header className="ops-top"><Wordmark/><span>Handoffs</span><b className="ho-me">Signed in as {me.name}</b>
+      <button className="ops-link ho-signout" onClick={() => { try { sessionStorage.removeItem('rall-e-ops'); } catch {} setKey(''); setDraftKey(''); }}><LogOut size={14}/>Sign out</button></header>
+    {error && <p className="error ops-error" role="alert">{error}</p>}
+    <HandoffsTab call={call} ago={ago} onOpenCount={setOpenHandoffs}/></main>;
 
   const people = data?.people || [], person = people.find(p => p.phone === phone), seen = new Set((thread?.features || []).map(f => f.feature));
   const who = person?.name || (person ? last4(person.phone) : '');
@@ -62,6 +74,7 @@ export default function OpsPage() {
       <button className={tab === 'sources' ? 'on' : ''} onClick={() => setTab('sources')}><CalendarRange size={15}/>Sources</button>
       <button className={tab === 'transactions' ? 'on' : ''} onClick={() => setTab('transactions')}><Receipt size={15}/>Transactions</button>
       <button className={tab === 'ideas' ? 'on' : ''} onClick={() => setTab('ideas')}><Lightbulb size={15}/>Ideas</button>
+      <button className={tab === 'handoffs' ? 'on' : ''} onClick={() => setTab('handoffs')}><Handshake size={15}/>Handoffs{openHandoffs ? <i className="warn">{openHandoffs}</i> : null}</button>
       <button className={tab === 'releases' ? 'on' : ''} onClick={() => setTab('releases')}><Megaphone size={15}/>Release notes</button>
       <button className={tab === 'usage' ? 'on' : ''} onClick={() => setTab('usage')}><Gauge size={15}/>Usage{alerts.length ? <i className={alerts.some(c => c.status === 'critical') ? 'critical' : 'warn'}>{alerts.length}</i> : null}</button>
     </nav>
@@ -71,6 +84,7 @@ export default function OpsPage() {
     {tab === 'sources' && <SourcesTab call={call} ago={ago}/>}
     {tab === 'transactions' && <TransactionsTab call={call} ago={ago}/>}
     {tab === 'ideas' && <IdeasTab call={call} ago={ago}/>}
+    {tab === 'handoffs' && <HandoffsTab call={call} ago={ago} onOpenCount={setOpenHandoffs}/>}
     {tab === 'releases' && <ReleasesTab call={call} ago={ago}/>}
     {tab === 'usage' && <section className="ops-usage">
       <div className="ops-usage-head"><h2>Service usage</h2><span>{usage ? `Checked ${ago(usage.at)}` : ''}</span><button className="ops-link" disabled={loadingUsage} onClick={loadUsage}><RefreshCw size={14} className={loadingUsage ? 'spin' : ''}/>Refresh</button></div>

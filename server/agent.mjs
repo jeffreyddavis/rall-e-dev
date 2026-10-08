@@ -4,6 +4,7 @@
 // Every text still goes through Sms.deliver() (live/preview, tester allowlist, STOP, caps).
 import { FEATURES, FeatureLog, featureForTool } from './features.mjs';
 import { meter } from './usage.mjs';
+import { PROMISE } from './handoffs.mjs';
 import { stats } from './stats.mjs';
 import { EVENTS, MAX_STOPS, eventById } from './catalog.mjs';
 import { legText } from './discovery.mjs';
@@ -135,6 +136,7 @@ export class Agent {
       person ? `Their personal plan link: ${this.flow.link_(s, person)}` : '',
       p.participants.length ? `Recent group activity (newest first): ${(s.activity || []).slice(0, 6).map(x => x.text).join(' | ') || 'none'}` : '',
       this.flow.sms.vault.summary(t.phone),
+      this.flow.sms.handoffs?.openFor(t.phone) || '',
       (() => { const c = this.flow.sms.memory?.card(t.phone); return c ? `What you know about them (theirs only; never share with others; "?" = your guess): ${c}` : 'What you know about them: nothing yet. When they tell you something lasting about themselves, use remember.'; })(),
       this.discovery.enabled ? (() => { const loc = this.flow.sms.discovery.location(t.phone);
         return !loc ? 'Location: unknown — ask or offer send_location_link'
@@ -148,7 +150,7 @@ export class Agent {
   }
   tzFor(phone) { return this.discovery.tzOf?.(this.discovery.location(phone)) || 'America/New_York'; }
   history(phone) {
-    const rows = this.flow.db.prepare("SELECT direction, body, created FROM sms_log WHERE phone=? AND status != 'blocked' ORDER BY rowid DESC LIMIT 16").all(phone).reverse();
+    const rows = this.flow.db.prepare("SELECT direction, body, created FROM sms_log WHERE phone=? AND status != 'blocked' AND kind != 'helper' ORDER BY rowid DESC LIMIT 16").all(phone).reverse(); // helper alerts aren't part of their chat
     const messages = [], tz = this.tzFor(phone);
     for (const r of rows) {
       const role = r.direction === 'in' ? 'user' : 'assistant';
@@ -205,6 +207,9 @@ export class Agent {
       T('my_bookings', 'Their recent reservations and purchases through Rall-e, with status.'));
     if (role !== 'new' && this.flow.sms.voice?.enabled) common.push(
       T('call_restaurant', 'Place one AI phone call to the verified restaurant to request a reservation. Only use when their latest text explicitly says to call or phone the restaurant, and party size, date and time are known. This starts a real call; a later text reports the result. Never supply a phone number.', { event_id: eventId, party_size: { type: 'integer' }, date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: '24h HH:MM' }, notes: { type: 'string' } }, ['event_id', 'party_size', 'date', 'time']));
+    // Human helpers: only while at least one helper is active, so nothing changes for members until the team has someone.
+    if (role !== 'new' && this.flow.sms.handoffs?.available()) common.push(
+      T('hand_off', 'Hand a task to a person on the Rall-e team when you can\'t finish it yourself but a person could: a table the booking link or a restaurant call couldn\'t get, calling a venue to ask something, or anything that needs a phone call or a login. Ask them first ("Want me to have someone on my team handle it?") unless they already asked for exactly that. Not for payments or card details, and not when a link you sent already lets them do it. Put everything a person needs in it, so they don\'t have to ask again.', { kind: { type: 'string', enum: ['reservation', 'call', 'info', 'other'] }, goal: { type: 'string', description: 'One line, e.g. "Table for 4 at Funke, Sat Oct 10, 7:30 PM (7–8:30 OK)"' }, details: { type: 'string', description: 'Everything else that matters: name for the booking, flexibility, seating, occasion, budget, deadline, what to ask' }, tried: { type: 'string', description: 'What you already tried and where it failed' } }, ['kind', 'goal', 'tried']));
     // The Rall-e team (the core testers on the allowlist) add event sources and team ideas straight from a text, no review.
     if (this.isTeam(ctx.phone)) common.push(
       T('add_source', 'TEAM ONLY: add a website that lists events (a venue, library, campus or city calendar) as an event source right away. It is read now and every 12 hours, and shows in /ops Sources.', { url: { type: 'string', description: 'Full link, https://…' }, city: { type: 'string', description: 'City the events are in, e.g. "Austin, TX"' }, name: { type: 'string', description: 'Short name, if they gave one' } }, ['url', 'city']),
@@ -407,6 +412,10 @@ export class Agent {
       }
       if (name === 'set_going_share') { const n = flow.sms.going.setShare(phone, input.share, input.name || ''); return n ? `Updated: friends on Rall-e ${input.share ? 'can' : 'can\'t'} see it.` : 'No upcoming event found to update.'; }
       if (name === 'not_going') { const n = flow.sms.going.unmark(phone, input.name); return n ? 'Removed.' : 'No upcoming event by that name.'; }
+      if (name === 'hand_off') {
+        const h = flow.sms.handoffs.add(phone, { name: t?.role === 'host' ? t.s.name : t?.person?.name || '', kind: input.kind, goal: input.goal, details: input.details, tried: input.tried });
+        return `Handed to the team (${h.id}). Tell them ${PROMISE}. Don't promise it will work, and never ask for card details for it.`;
+      }
       if (name === 'book_table') {
         const e = eventById(input.event_id); if (!e) return 'Error: unknown place id. Use an id from your search results.';
         const r = await flow.sms.bookings.reserve(phone, t, e, { party: input.party_size, date: input.date, time: input.time, notes: input.notes });

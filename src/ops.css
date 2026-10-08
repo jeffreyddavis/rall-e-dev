@@ -121,3 +121,35 @@
 .src-tech{display:block;font-size:11px;color:#7a868c;word-break:break-word}
 .src-error{word-break:break-word}
 .ins-people{display:block;font-size:11px;color:#7a868c;white-space:nowrap}
+/* Handoffs (human helpers): the queue cards, the resolve form and helper accounts. */
+.ops-tabs{flex-wrap:wrap}
+.ho-me{font-size:13px;font-weight:600;color:#4e5a60;margin-left:auto}.ho-signout{align-self:center}
+.ho-hint{margin:6px 0;font-size:13px;color:#6f7a80}
+.ho-list{display:flex;flex-direction:column;gap:12px}
+.ho-card{background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 2px 10px #1d4f7a12;border-left:4px solid #2f89c2;display:flex;flex-direction:column;gap:6px;min-width:0}
+.ho-card.claimed{border-left-color:#d98a00}.ho-card.done{border-left-color:#3f9a5c}.ho-card.failed,.ho-card.cancelled{border-left-color:#b9c3c8}
+.ho-card header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.ho-card header strong{font-size:16px;flex:1;min-width:12em}
+.ho-state{font-style:normal;font-size:12px;font-weight:700;padding:2px 9px;border-radius:10px;background:#e4f1fa;color:#1d6ea3;white-space:nowrap}
+.ho-state.claimed{background:#fdf1dc;color:#8a5a00}.ho-state.done{background:#e4f4ea;color:#2f7148}.ho-state.failed,.ho-state.cancelled{background:#eef1f2;color:#5c6d76}
+.ho-who{margin:0;font-size:13px;color:#6f7a80}.ho-who small{font-variant-numeric:tabular-nums;color:#4e5a60}
+.ho-field{margin:0;font-size:14px;line-height:1.45;overflow-wrap:anywhere}.ho-field b{display:inline-block;min-width:7.5em;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#6f7a80;margin-right:8px}
+.ho-convo summary,.ho-log summary,.ho-helpers summary{cursor:pointer;font-size:13px;color:#2f89c2}
+.ho-convo .ops-messages{max-height:320px;margin-top:8px;border-radius:12px}
+.ho-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:4px}.ho-actions .ops-link{align-self:center}.ho-actions .button{display:inline-flex;align-items:center;gap:6px}
+.ho-work{border-top:1px solid #eef2f4;padding-top:10px;margin-top:4px;display:flex;flex-direction:column;gap:8px}
+.ho-resolve{display:flex;flex-direction:column;gap:6px;max-width:640px}
+.ho-resolve fieldset{border:0;padding:0;margin:0 0 4px;display:flex;gap:16px;flex-wrap:wrap}.ho-resolve legend{font-size:13px;font-weight:600;margin-bottom:6px;padding:0}
+.ho-resolve fieldset label{display:inline-flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;white-space:nowrap;width:auto}
+.ho-resolve fieldset input[type=radio]{width:16px;height:16px;margin:0;padding:0;flex:none;accent-color:#2f89c2}
+.ho-label{font-size:13px;font-weight:600;margin-top:4px}.ho-label small{font-weight:400;color:#6f7a80}
+.ho-resolve textarea,.ho-resolve input[type=text],.ho-resolve input:not([type]){font:inherit;font-size:14px;padding:9px 11px;border:1px solid #d7e1e6;border-radius:10px;background:#fafcfd;width:100%;box-sizing:border-box}
+.ho-resolve .button{align-self:flex-start;margin-top:4px}
+.ho-done{display:flex;flex-direction:column;gap:4px}
+.ho-log ul{margin:6px 0 0;padding-left:18px;font-size:12px;color:#6f7a80}
+.ho-helper-list{list-style:none;padding:0;margin:8px 0;display:flex;flex-direction:column;gap:6px}
+.ho-helper-list li{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border-radius:12px;padding:8px 12px}.ho-helper-list small{color:#6f7a80;flex:1;min-width:12em}
+.ho-add{grid-template-columns:1fr 1fr auto}
+.ho-key{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;background:#fdf6e6;border-radius:12px;padding:12px;margin:8px 0}
+.ho-key div{flex:1;min-width:14em;display:flex;flex-direction:column;gap:4px}.ho-key code{font-size:13px;background:#fff;border-radius:8px;padding:6px 8px;overflow-wrap:anywhere;user-select:all}.ho-key small{color:#6f7a80}
+.ho-key .button{display:inline-flex;align-items:center;gap:6px}
+@media(max-width:700px){.ho-add{grid-template-columns:1fr}.ho-field b{display:block;margin-bottom:2px}}
