@@ -261,7 +261,7 @@ export class Alerts {
         if (!kind || this.db.prepare('SELECT 1 FROM plan_reminders WHERE plan=? AND phone=? AND kind=?').get(planKey, who.phone, kind) || this.midConversation(who.phone, now)) continue;
         const first = !this.db.prepare("SELECT 1 FROM alert_log WHERE phone=? AND kind='reminder'").get(who.phone);
         this.db.prepare('INSERT INTO plan_reminders VALUES (?,?,?,?)').run(planKey, who.phone, kind, now);
-        this.nudge(who.phone, 'reminder', `${planKey}:${kind}`, this.reminderText(s, p, when, kind, who, first)); sent++;
+        this.nudge(who.phone, 'reminder', `${planKey}:${kind}`, this.reminderText(s, p, when, kind, who, first), now); sent++;
       }
     }
     return sent;
@@ -283,8 +283,8 @@ export class Alerts {
     const last = this.db.prepare('SELECT MAX(at) m FROM alert_log WHERE phone=?').get(phone)?.m || 0;
     return now - last >= GAP;
   }
-  nudge(phone, kind, ref, instruction) {
-    this.db.prepare('INSERT INTO alert_log VALUES (?,?,?,?)').run(phone, kind, ref, Date.now());
+  nudge(phone, kind, ref, instruction, now = Date.now()) {
+    this.db.prepare('INSERT INTO alert_log VALUES (?,?,?,?)').run(phone, kind, ref, now); // the tick's own time, not the wall clock
     stats.bump(`alerts_${kind}`, 1, phone);
     this.sms.flow.operatorNudge(phone, instruction);
   }
@@ -328,14 +328,14 @@ export class Alerts {
       this.db.prepare('UPDATE watches SET pending=NULL, alerted=?, hits=hits+? WHERE id=?').run(now, events.length ? 1 : 0, w.id);
       if (!events.length) continue;
       if (listing) this.discovery.remember(w.phone, events); // so the agent can plan with these ids
-      this.nudge(w.phone, listing ? 'watch' : w.kind, w.id, listing ? this.alertText(w, events) : this.natureText(w, events)); sent++;
+      this.nudge(w.phone, listing ? 'watch' : w.kind, w.id, listing ? this.alertText(w, events) : this.natureText(w, events), now); sent++;
     }
     for (const r of this.db.prepare('SELECT * FROM weekend_picks WHERE on_=1').all()) {
       const t = localNow(this.agent.tzFor?.(r.phone) || 'America/New_York', now);
       if (t.weekday !== 'Thursday' || t.hour < 15 || t.hour >= 19 || r.last_key === t.date) continue;
       if (!this.discovery?.enabled || !this.member(r.phone) || !this.discovery.location(r.phone) || !this.ready(r.phone, now)) continue;
       this.db.prepare('UPDATE weekend_picks SET last_key=? WHERE phone=?').run(t.date, r.phone);
-      this.nudge(r.phone, 'weekend', t.date, this.weekendText(r.phone)); sent++;
+      this.nudge(r.phone, 'weekend', t.date, this.weekendText(r.phone), now); sent++;
     }
     sent += this.reminders(now);
     return { checked, sent };

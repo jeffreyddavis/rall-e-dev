@@ -64,6 +64,21 @@ test('a held note goes out once it is approved in /ops; the summary shows what w
   store.close();
 });
 
+test('approving several notes in a row sends them as one text, after approvals settle', () => {
+  const { store, sms, out } = setup();
+  const w = new WhatsNew(sms, { releases: [{ id: 'h1', date: '2026-10-08', text: 'One.', hold: true }, { id: 'h2', date: '2026-10-08', text: 'Two.', hold: true }, { id: 'h3', date: '2026-10-08', text: 'Three.', hold: true }] });
+  w.joined = () => 0;
+  for (const id of ['h1', 'h2', 'h3']) w.approve(id);
+  clearTimeout(w.soonTimer);
+  store.db.prepare('UPDATE update_approved SET at=?').run(AFTERNOON - 30000); // approved a moment before a fixed afternoon
+  assert.deepEqual(w.tick(AFTERNOON), []); // still settling: nothing yet
+  assert.equal(out(A).length, 0);
+  w.tick(AFTERNOON + 3 * 60000); // settled: all three together
+  assert.match(out(A).at(-1), /• One\.\n• Two\.\n• Three\./);
+  assert.equal(out(A).length, 1);
+  store.close();
+});
+
 test('team-only dev updates go to the core testers, under their own heading, and members never see them', () => {
   const { store, sms, out } = setup();
   const C = '+13107770913'; sms.allowed.add(C); // an opted-in member, not a core tester

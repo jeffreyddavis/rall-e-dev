@@ -15,10 +15,11 @@ export default function ReleasesTab({ call, ago }) {
     {!data ? <p className="ins-empty">Loading…</p> : <>
       {data.canApprove && <>
         <h3 className="rel-head">Waiting for approval</h3>
+        {data.held.length > 0 && <p className="ins-empty">Approved notes go out together about 2 minutes after your last approval, as one text per member (in their daytime, at most one update text every 3 hours).</p>}
         {!data.held.length ? <p className="ins-empty">Nothing waiting. New notes show up here when they’re added with a hold.</p> :
           <ul className="rel-list">{data.held.map(r => <li key={r.id} className="held">
             <p>{r.team && <em className="rel-team">Team only</em>}{r.text}</p><small>{r.date}</small>
-            <button className="button primary" disabled={!!busy} onClick={() => confirm(`Text this to ${r.team ? 'the Rall-e team' : 'every member who gets updates'}?\n\n“${r.text}”`) && run(r.id, () => call('releases/approve', { id: r.id }))}><Check size={15}/>Approve and send</button>
+            <button className="button primary" disabled={!!busy} onClick={() => confirm(`Text this to ${r.team ? 'the Rall-e team' : 'every member who gets updates'}?\n\n“${r.text}”\n\nNotes you approve within 2 minutes of each other go out as one text.`) && run(r.id, () => call('releases/approve', { id: r.id }))}><Check size={15}/>Approve and send</button>
           </li>)}</ul>}
         <h3 className="rel-head">Sent</h3>
       </>}

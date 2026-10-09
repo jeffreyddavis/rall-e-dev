@@ -15,6 +15,8 @@ export class WhatsNew {
   constructor(sms, { releases = RELEASES, env = process.env } = {}) {
     this.sms = sms; this.db = sms.db; this.releases = releases;
     this.gapHours = Number(env.UPDATES_MIN_GAP_HOURS ?? 3); this.window = [9, 20];
+    // Approving several notes in a row sends them as one text: nothing goes out until approvals have been quiet this long.
+    this.settleMs = Number(env.UPDATES_SETTLE_SECONDS ?? 120) * 1000;
     this.db.exec(`CREATE TABLE IF NOT EXISTS update_prefs (phone TEXT PRIMARY KEY, updates INTEGER NOT NULL, at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS update_sent (phone TEXT NOT NULL, release TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (phone, release));
       CREATE TABLE IF NOT EXISTS update_live (release TEXT PRIMARY KEY, at INTEGER NOT NULL);
@@ -27,6 +29,13 @@ export class WhatsNew {
     const r = this.releases.find(x => x.id === id);
     if (!r?.hold) { const e = new Error(r ? 'That note is already live.' : 'No such release note.'); e.status = r ? 409 : 404; throw e; }
     this.db.prepare('INSERT OR IGNORE INTO update_approved VALUES (?, ?)').run(id, Date.now());
+    this.soon();
+  }
+  // One send shortly after the last approval (each approval pushes it back), so a batch of approvals is one text.
+  soon() {
+    clearTimeout(this.soonTimer);
+    this.soonTimer = setTimeout(() => { try { this.tick(); } catch (e) { console.error('Updates:', e.message); } }, this.settleMs + 5000);
+    this.soonTimer.unref?.();
   }
   live() {
     const out = [];
@@ -73,6 +82,8 @@ export class WhatsNew {
     return now - lastUpdate >= this.gapHours * 60 * MINUTE;
   }
   tick(now = Date.now()) {
+    const lastApproval = this.db.prepare('SELECT MAX(at) AS m FROM update_approved').get()?.m || 0;
+    if (lastApproval <= now && now - lastApproval < this.settleMs) return []; // more approvals may be coming: wait and send them together
     const live = this.live(); if (!live.length) return [];
     const sent = [];
     for (const phone of this.audience()) {
