@@ -3,7 +3,7 @@
 // Google can't both receive mail for the domain.
 //
 // events@rall-e.ai is an alias on the admin's Workspace account. Setup (once, in that account):
-//   1. Gmail > Settings > Filters > Create filter. "Has the words": deliveredto:events@rall-e.ai
+//   1. Gmail > Settings > Filters > Create filter. "To": events@rall-e.ai (not deliveredto:, which shows jeff@ for an alias)
 //      Then: Skip the Inbox, Apply the label "Rall-e events", Never send it to Spam.
 //   2. script.google.com > New project > paste this file. Project Settings > Script properties:
 //        RALLE_URL       https://rall-e.ai/api/inbound/email

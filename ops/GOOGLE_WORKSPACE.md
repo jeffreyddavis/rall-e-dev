@@ -22,7 +22,7 @@ account) reach Rall-e through the Apps Script `google-events-forwarder.gs` inste
 2. Verify the domain with the TXT record. Nothing about mail changes yet.
 3. Admin console: add users mike@ and marc@; make Mike a **Super Admin** (Account → Admin roles). Add the alias
    events@rall-e.ai to Jeff's user (Users → Jeff → User information → Alternate email addresses).
-4. In Jeff's Gmail: the "Rall-e events" filter and the Apps Script (steps in `google-events-forwarder.gs`).
+4. In Jeff's Gmail: the "Rall-e events" filter (match **To:** events@rall-e.ai; `deliveredto:` sees jeff@ for an alias) and the Apps Script (steps in `google-events-forwarder.gs`).
 5. Cloudflare: Email → Email Routing → turn it off (removes its MX and SPF), then add Google's MX and SPF.
 6. Admin console: activate Gmail if it asks, then DKIM (it can take up to 48 hours before the key can be generated), then DMARC.
 7. Test: mail mike@ and marc@ from outside; send a sample newsletter to events@ and check /ops → Ideas.
