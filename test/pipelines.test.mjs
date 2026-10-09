@@ -68,7 +68,7 @@ test('results are cleaned, added only when we don\'t have them, and scored again
     { title: 'Old Show', date: day(-2) }, { title: 'x', date: day(4) }, { title: 'No date' } // dropped
   ] } } }, { id: 'run2', status: 'running', output: null }];
   t.state.parallelEvents = [{ event_id: 'e1', event_group_id: 'g1', event_type: 'event_stream', event_date: day(0), output: { type: 'text', content: 'New: Harbor Lights Parade and a Craft Fair', basis: [{ citations: [{ url: 'https://calendar.example.org/x' }] }] } },
-    { event_id: 'e0', event_group_id: 'g0', event_type: 'completion' }];
+    { event_type: 'completion', timestamp: '2026-10-09T23:14:45Z' }];
   t.state.parsed = [{ title: 'Harbor Lights Parade', date: day(10), time: '18:30' }, { title: 'Craft Fair on the Green', date: day(12) }];
   const added = await t.p.poll();
   assert.equal(added, 2); // Exa's parade + Parallel's craft fair (Parallel's parade was already added by Exa)
@@ -82,8 +82,15 @@ test('results are cleaned, added only when we don\'t have them, and scored again
   assert.deepEqual([exa.runs, exa.events, exa.alsoScraper, exa.extra, exa.added, exa.caught, exa.first], [1, 3, 2, 1, 1, 1, 0]);
   assert.deepEqual([par.runs, par.events, par.extra, par.added, par.caught], [2, 2, 2, 1, 0]); // g0 (no changes) still counts as a check
   assert.equal(exa.cost, 0.03); assert.equal(par.cost, 0.02);
+  // Exa watching the site's pages: change reports are read by the model; a baseline run (no changes) adds nothing.
+  t.state.exaRuns = [{ id: 'run3', status: 'completed', output: { results: [], content: { changeCount: 1, changes: [{ url: 'https://calendar.example.org/events', summary: 'Added: Lantern Walk, Oct 30 6pm' }], targets: [] } } },
+    { id: 'run4', status: 'completed', output: { results: [], content: { changeCount: 0, changes: [], targets: ['https://calendar.example.org/events'] } } }];
+  t.state.parsed = [{ title: 'Lantern Walk', date: day(20), time: '6pm' }];
+  assert.equal(await t.p.poll('exa'), 1);
+  assert.equal(t.p.report().sources[0].providers.exa.runs, 3);
+  t.state.exaRuns = t.state.exaRuns.slice(0, 1).concat({ id: 'run1', status: 'completed', output: null });
   // The same runs aren't read twice.
   assert.equal(await t.p.poll(), 0);
-  assert.equal(t.p.report().sources[0].providers.exa.runs, 1);
+  assert.equal(t.p.report().sources[0].providers.exa.runs, 3);
   t.store.close();
 });

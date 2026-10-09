@@ -18,6 +18,8 @@ export const PROVIDER_NAMES = { exa: 'Exa', parallel: 'Parallel' };
 const RUN_COST = { exa: 0.015 + 15 * 0.001, parallel: 0.01 };
 const NUM_RESULTS = 25;
 export const norm = t => String(t || '').toLowerCase().replace(/&amp;/g, '&').replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(w => w.length > 2).slice(0, 3).join(' ');
+// A Parallel execution: its event group, or for a "no changes" completion (which has no ids) its timestamp.
+const runOf = ev => String(ev.event_group_id || ev.event_id || `done:${ev.timestamp || ''}`);
 const keyOf = e => `${e.date}|${norm(e.title)}`;
 const short = v => createHash('sha256').update(String(v)).digest('base64url').slice(0, 10);
 const EVENT_FIELDS = {
@@ -163,9 +165,13 @@ export class Pipelines {
       let content = run.output?.content;
       if (typeof content === 'string') { try { content = JSON.parse(content); } catch { content = null; } }
       let raw = Array.isArray(content?.events) ? content.events : null;
-      if (!raw) { // no structured output: read the search results instead
-        const results = run.output?.results || [];
-        raw = results.length ? await this.parseText(results.map(x => `${x.title || ''} | ${x.url || ''} | ${x.publishedDate || ''}\n${String(x.text || x.summary || (x.highlights || []).join(' ')).slice(0, 1500)}`).join('\n\n'), src) : [];
+      if (!raw) {
+        // Limited to one site, Exa watches that site's pages instead of searching: content is { changeCount, changes,
+        // targets } (the first run is a baseline with no changes). Otherwise read the search results.
+        const changes = Array.isArray(content?.changes) ? content.changes : [], results = run.output?.results || [];
+        const text = [...changes.map(c => typeof c === 'string' ? c : JSON.stringify(c).slice(0, 3000)),
+          ...results.map(x => `${x.title || ''} | ${x.url || ''} | ${x.publishedDate || ''}\n${String(x.text || x.summary || (x.highlights || []).join(' ')).slice(0, 1500)}`)].join('\n\n');
+        raw = text ? await this.parseText(text, src) : [];
       }
       n += await this.ingest('exa', src, run.id, raw);
     }
@@ -179,16 +185,16 @@ export class Pipelines {
       const events = r.events || [];
       let known = false;
       for (const ev of events) {
-        const id = ev.event_group_id || ev.event_id;
+        const id = runOf(ev);
         if (this.db.prepare('SELECT 1 FROM pipeline_runs WHERE provider=? AND run_id=?').get('parallel', id)) { known = true; continue; }
         groups.add(id); fresh.push(ev);
       }
       cursor = known ? null : r.next_cursor; pages++;
     } while (cursor && pages < 5);
     for (const id of groups) {
-      const evs = fresh.filter(ev => (ev.event_group_id || ev.event_id) === id && ev.event_type === 'event_stream');
+      const evs = fresh.filter(ev => runOf(ev) === id && ev.event_type === 'event_stream');
       const text = evs.map(ev => [ev.event_date && `Date: ${ev.event_date}`, typeof ev.output?.content === 'string' ? ev.output.content : JSON.stringify(ev.output?.content || ''),
-        ...(ev.output?.basis || []).flatMap(b => (b.citations || []).map(c => `Source: ${c.url}`))].filter(Boolean).join('\n')).join('\n\n');
+        ...(ev.output?.basis || []).flatMap(b => (b.citations || []).map(c => `Source: ${c.title || ''} ${c.url || ''}\n${(c.excerpts || []).join(' | ').slice(0, 800)}`))].filter(Boolean).join('\n')).join('\n\n');
       n += await this.ingest('parallel', src, id, text ? await this.parseText(text, src) : []);
     }
     return n;
