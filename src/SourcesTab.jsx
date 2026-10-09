@@ -51,6 +51,7 @@ export default function SourcesTab({ call, ago }) {
       <button className="button primary" disabled={!!busy}><Plus size={15}/>{busy === 'add' ? 'Reading it…' : 'Add source'}</button>
     </form>
     {error && <p className="error" role="alert">{error}</p>}
+    <PipelineTrial call={call} ago={ago}/>
     <details className="src-manual src-notes"><summary>How we pick sources ({SOURCE_NOTES.decisions.length} decisions, updated {SOURCE_NOTES.updated})</summary>
       <dl>{SOURCE_NOTES.how.map(([t, d]) => <div key={t}><dt>{t}</dt><dd>{d}</dd></div>)}</dl>
       <table className="src-table"><thead><tr><th>Status</th><th>Source or idea</th><th>Why / next step</th><th>From</th></tr></thead><tbody>
@@ -91,4 +92,31 @@ export default function SourcesTab({ call, ago }) {
           <button className="ops-link" disabled={!!busy} onClick={() => run(s.id, () => call('sources/remove', { id: s.id }))} aria-label={`Remove ${s.name}`}><Trash2 size={14}/></button></td>
       </tr>)}</tbody></table>}
   </section>;
+}
+
+// Exa vs Parallel trial (server/pipelines.mjs): both watch the same sources daily; their extra events supplement ours.
+const COLS = [['runs', 'Checks', 'Daily checks that have finished'], ['events', 'Events', 'Upcoming events it returned (cleaned, no repeats)'],
+  ['alsoScraper', 'Also ours', 'Events our scraper also has: a sign the data is right'], ['extra', 'Extra', 'Events our scraper doesn\'t have (added to Rall-e)'],
+  ['caught', 'Caught', 'Of the events our scraper found new since the trial started, how many it also found'], ['first', 'First', 'Of those, how many it had before our scraper'],
+  ['cost', 'Cost', 'Estimated spend so far (list prices)']];
+function PipelineTrial({ call, ago }) {
+  const [d, setD] = useState(null), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  useEffect(() => { call('pipelines').then(setD).catch(() => {}); }, []);
+  if (!d || !d.sources.length) return null;
+  const poll = async () => { setBusy(true); setError(''); try { setD(await call('pipelines/poll', {})); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const cell = (v, k) => v == null ? '–' : k === 'cost' ? `$${v.toFixed(2)}` : v;
+  return <details className="src-manual src-trial" open>
+    <summary>Pipeline trial: Exa vs Parallel ({d.sources.length} sources, {d.scraperNew} new events from our scraper so far)</summary>
+    <p className="me-muted">Each service checks these sources once a day. Their events that we don't already have are added to Rall-e (marked "via Exa" / "via Parallel"); nothing of ours is replaced.</p>
+    <table className="src-table"><thead><tr><th>Source</th><th>Service</th>{COLS.map(([k, label, tip]) => <th key={k} title={tip}>{label}</th>)}</tr></thead><tbody>
+      {d.sources.flatMap(s => Object.entries(s.providers).map(([p, x], i) => <tr key={s.id + p}>
+        {i === 0 && <td rowSpan={Object.keys(s.providers).length}><strong>{s.name}</strong><span className="idea-note">{s.city} · {s.scraperNew} new from our scraper</span></td>}
+        <td>{p === 'exa' ? 'Exa' : 'Parallel'}{x.error && <span className="idea-note" title={x.error}>Problem: {x.error.slice(0, 60)}</span>}{!x.error && x.polled && <span className="idea-note">checked {ago(x.polled)}</span>}</td>
+        {COLS.map(([k]) => <td key={k}>{cell(x[k], k)}</td>)}
+      </tr>))}
+      {['exa', 'parallel'].filter(p => d.totals[p]?.runs || d.sources.some(s => s.providers[p])).map(p => <tr key={p} className="src-trial-total"><td><strong>Total</strong></td><td><strong>{p === 'exa' ? 'Exa' : 'Parallel'}</strong></td>{COLS.map(([k]) => <td key={k}><strong>{cell(d.totals[p][k], k)}</strong></td>)}</tr>)}
+    </tbody></table>
+    {d.canEdit && <button className="button secondary" disabled={busy} onClick={poll}><RefreshCw size={15}/>{busy ? 'Checking…' : 'Check for new results now'}</button>}
+    {error && <p className="error" role="alert">{error}</p>}
+  </details>;
 }

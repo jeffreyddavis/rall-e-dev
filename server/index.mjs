@@ -74,6 +74,9 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req), key = url.searchParams.get('key');
       return json(res, 200, url.pathname.endsWith('/inbound') ? sms.sendblueInbound(key, input) : sms.sendblueStatus(key, url.searchParams.get('log'), input));
     }
+    // Exa / Parallel webhooks: only a nudge to poll their APIs soon (nothing in the payload is trusted or stored).
+    const hook = /^\/api\/pipelines\/hook\/(exa|parallel)$/.exec(url.pathname);
+    if (hook && req.method === 'POST') { req.resume(); sms.pipelines.nudge(hook[1]); return json(res, 200, { ok: true }); }
     if (url.pathname === '/api/inbound/email') {
       // Inbound newsletters (events@rall-e.ai) from the Cloudflare Email Worker (raw message) or Postmark-style JSON, with
       // INBOUND_EMAIL_SECRET as basic auth. Answered at once; read in the background (server/newsletters.mjs).
@@ -268,6 +271,16 @@ const server = http.createServer(async (req, res) => {
         if (url.pathname === '/api/ops/thread' && req.method === 'GET') return json(res, 200, sms.opsThread(url.searchParams.get('phone') || ''));
         // Sources (curated event calendars) are open to both keys, so Mike and Marc can manage them from the dashboard.
         if (url.pathname === '/api/ops/sources' && req.method === 'GET') return json(res, 200, { sources: sms.sources.list(), manual: sms.sources.manualEvents() });
+        // Exa vs Parallel trial scoreboard: both keys can read it; only the operator starts, polls or stops it.
+        if (url.pathname === '/api/ops/pipelines' && req.method === 'GET') return json(res, 200, { ...sms.pipelines.report(), ...(role === 'operator' ? { canEdit: true } : {}) });
+        if (url.pathname.startsWith('/api/ops/pipelines/') && req.method === 'POST') {
+          if (role !== 'operator') fail(404, 'Not found.');
+          const input = await body(req), op = url.pathname.slice('/api/ops/pipelines/'.length);
+          if (op === 'setup') return json(res, 200, { result: await sms.pipelines.setup(input.sources), ...sms.pipelines.report() });
+          if (op === 'poll') return json(res, 200, { added: await sms.pipelines.poll(), ...sms.pipelines.report() });
+          if (op === 'stop') return json(res, 200, { stopped: await sms.pipelines.stop(input.provider || null), ...sms.pipelines.report() });
+          fail(404, 'Not found.');
+        }
         if (url.pathname === '/api/ops/transactions' && req.method === 'GET') return json(res, 200, sms.bookings.report());
         // Ideas inbox (tips, gems, feedback): both keys can read and review it.
         if (url.pathname === '/api/ops/ideas' && req.method === 'GET') return json(res, 200, { ideas: sms.ideas.list() });
@@ -433,7 +446,7 @@ const server = http.createServer(async (req, res) => {
     res.end(await readFile(path));
   } catch (error) { if (!res.headersSent) json(res, error.status || 500, { error: error.status ? error.message : 'Something went wrong. Please try again.' }); }
 });
-server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); setInterval(() => sms.alerts.tick().catch(e => console.error('Alerts:', e.message)), 5 * 60000).unref(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); if (sms.voice.enabled) { setTimeout(() => sms.voice.reconcile().catch(() => {}), 30000).unref(); setInterval(() => sms.voice.reconcile().catch(() => {}), 120000).unref(); } });
+server.listen(Number(process.env.PORT || 3000), process.env.HOST || '127.0.0.1', () => { console.log(`Rall-e is ready at http://${process.env.HOST || '127.0.0.1'}:${process.env.PORT || 3000}`); sms.startCatchUp(); setInterval(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 10 * 60000).unref(); setTimeout(() => { try { sms.whatsNew.tick(); } catch (e) { console.error('Updates:', e.message); } }, 60000).unref(); sms.sources.schedule(); sms.pipelines.start(); setInterval(() => sms.alerts.tick().catch(e => console.error('Alerts:', e.message)), 5 * 60000).unref(); setInterval(() => sms.flow.closeFinished(), 3600000).unref(); setTimeout(() => sms.flow.closeFinished(), 20000).unref(); setTimeout(() => sms.catchUp().catch(() => {}), 5000).unref(); if (sms.voice.enabled) { setTimeout(() => sms.voice.reconcile().catch(() => {}), 30000).unref(); setInterval(() => sms.voice.reconcile().catch(() => {}), 120000).unref(); } });
 // Deploys restart the service: stop taking requests, finish texts already being handled (up to 25 s), then exit.
 let stopping = false;
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal, async () => {

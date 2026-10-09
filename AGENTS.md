@@ -74,6 +74,7 @@ This file covers how the project works and the rules. **`docs/STATUS.md`** cover
   - Insights are anonymous (salted daily hashes). 555 lab numbers are excluded from stats and from the ops people list.
   - Gap examples must be free of personal information.
   - Restaurant calls disable audio recordings, detailed logs and packet captures. Vapi transcript artifacts are enabled for post-call extraction; only limited reservation results are stored locally. The caller stops when a restaurant requires payments or full contact details.
+- **Exa / Parallel trial (`server/pipelines.mjs`).** Extra events only ever supplement the scraper (`pl_<provider>_<source>` rows in `curated_events`); never let them replace or delete a source's own events. Webhook payloads are not trusted: they only trigger a poll with our key.
 - **The running server loads `discovered_events` only at startup.**
 
 ## Workflow

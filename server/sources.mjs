@@ -437,6 +437,8 @@ export class Sources {
       price: /\d/.test(e.price || '') ? Number(String(e.price).replace(/[^\d.]/g, '')) || null : 0, priceText: e.price || 'See listing', url: e.url || src.url,
       image: e.image || null, description: (e.description || `From ${src.name}.`).slice(0, 300), curated: true });
   }
+  // Saves one event under a source tag (also used by the Exa/Parallel trial for its extra events).
+  store(source, e) { registerEvent(e); this.db.prepare('INSERT OR REPLACE INTO curated_events VALUES (?,?,?,?,?,?)').run(e.id, source, e.localDate, e.lat, e.lng, JSON.stringify(e)); }
   // Curated events near someone, within the dates asked for, loosely matching what they want.
   near(loc, { what = '', category = '', start = Date.now(), end = Date.now() + 7 * DAY } = {}) {
     if (loc?.lat == null) return [];
