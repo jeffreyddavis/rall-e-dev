@@ -187,7 +187,7 @@ export class Agent {
         T('send_secure_link', 'Text them a private 15-minute link to their vault to add or change details (card, address, name, reservation accounts, etc.).', { purpose: { type: 'string', enum: ['details', 'card'] } }, ['purpose']),
         T('save_details', 'Save email, dietary needs or allergies they clearly stated in a text.', { email: { type: 'string' }, dietary: { type: 'string' }, allergies: { type: 'string' } })
       ] : [])];
-    const invite = this.flow.sms.invites?.member(ctx.phone) ? [T('get_invite_link', 'Their personal invite link to Rall-e (invite-only) and a link to their invites page, where they can make more links and see who joined. Use when they ask to invite someone to Rall-e itself, ask for their invite link, or ask how many invites they have. (To invite friends to a plan, hosts use invite instead.)')] : [];
+    const invite = this.flow.sms.invites?.member(ctx.phone) ? [T('get_invite_link', 'Their personal invite link to Rall-e (invite-only) and a link to their invites page, where they can make more links and see who joined. Use when they ask to invite someone to Rall-e itself, ask for their invite link, or ask how many invites they have. (To invite friends to a plan, hosts use invite instead.)'), T('invite_qr', 'Text them a QR code picture of their invite link, for sharing Rall-e in person: a friend points their phone camera at it and joins with their invite. Use when they ask for a QR code or how to share Rall-e with someone in front of them.')] : [];
     common.push(...invite);
     if (role !== 'new' && this.flow.sms.ideas) common.push(
       T('share_tip', 'They want to teach Rall-e something: a hidden gem (a place they love that others should know), a website that lists local events, feedback on how Rall-e did, or a feature idea. Sends it to the team, who review every tip; approved gems and sites then show up in recommendations, credited to them.', { kind: { type: 'string', enum: ['gem', 'source', 'feedback', 'feature'] }, title: { type: 'string', description: 'Place name, site name, or a one-line summary' }, city: { type: 'string', description: 'City, for gems and sites' }, url: { type: 'string' }, note: { type: 'string', description: 'Why, in their words' } }, ['kind', 'title']),
@@ -293,6 +293,10 @@ export class Agent {
       if (name === 'get_invite_link') {
         const inv = flow.sms.invites, code = inv.defaultLink(phone), left = inv.quota(phone) - inv.used(phone);
         return `Invite link (reusable, one per friend not needed): ${inv.url(code)}\nInvites: ${inv.used(phone)} of ${inv.quota(phone)} used (${Math.max(0, left)} left; an invite counts when someone joins).\nTheir invites page (make more links, see who joined; private, 30 days): ${inv.pageLink(phone)}\nSend the invite link, and mention the page in a few words.`;
+      }
+      if (name === 'invite_qr') {
+        const r = flow.sms.invites.sendQr(phone, { withPage: false });
+        return `The QR code picture was just texted to them (it opens ${r.url}; ${r.left} invites left). Reply in one short line: a friend scans it with their phone camera. Bigger version: their page (get_my_page). Phones can't share Rall-e by tapping, so the QR code or the Share button on their page is the in-person way.`;
       }
       if (name === 'start_account') {
         flow.createHost(phone, String(input.first_name || '').trim());

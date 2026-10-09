@@ -1,6 +1,6 @@
 # Rall-e status
 
-_Last updated: 2026-10-08. Update this file with every round of work (see AGENTS.md)._
+_Last updated: 2026-10-09. Update this file with every round of work (see AGENTS.md)._
 
 ## Live state
 - **Site:** https://rall-e.ai. It's the texting prototype in LIVE mode for testers and people who opted in. Web signup and share pages are public.
@@ -29,6 +29,7 @@ _Last updated: 2026-10-08. Update this file with every round of work (see AGENTS
   - The home page is the waitlist, plus invite links at `/i/<code>`: double opt-in, then an account, then a welcome text.
   - Members get 10 invites and a private `/me/` page (invites + profile photo). The agent can send it (`get_invite_link` / `get_my_page`).
   - `/ops` shows invites used per person, and Insights has an "Invites & waitlist" group.
+  - **Invite QR codes (10-09, Marc's ask):** members text "QR" (or ask the agent: `invite_qr`) and get a picture of their invite link as a QR card; `/me` has a QR button that shows it full screen. Image: `/i/<code>/qr.png` (`server/qr.mjs`, 404 for dead links). Phones can't share by tapping from texts or the web (no NFC/NameDrop for links on iPhone), so QR + the Share button are the in-person path. Release note `2026-10-09-invite-qr` is held.
 - **Profile photos:** text a photo ("use this as my profile photo"), or upload one on `/me/`. Shown on plan pages.
 - **Mike's list (09-29):**
   - Weather-aware suggestions (NWS).

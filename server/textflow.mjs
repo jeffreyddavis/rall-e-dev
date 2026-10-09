@@ -12,6 +12,7 @@ import { stats } from './stats.mjs';
 import { legText } from './discovery.mjs';
 import { parseVcards } from './photos.mjs';
 import { planWhen, localNow } from './timeline.mjs';
+import { QR_WORDS } from './qr.mjs';
 
 // When the invite says it happens: the plan's saved day and time ("Tue, Oct 6 at 7 PM"), not a venue's opening hours.
 export function inviteWhen(plan, e) {
@@ -278,6 +279,7 @@ export class TextFlow {
     }
     if (OFF_WORDS.test(text) && this.sms.whatsNew) { this.sms.whatsNew.set(phone, false); this.reply(phone, 'Done: no more "what\'s new" texts. Plans and replies still come through as usual. Text "updates on" anytime to get them again.', 'update'); return true; }
     if (ON_WORDS.test(text) && this.sms.whatsNew) { this.sms.whatsNew.set(phone, true); this.reply(phone, 'Updates are back on: I\'ll text you when something new goes live.', 'update'); return true; }
+    if (QR_WORDS.test(text) && this.sms.invites?.member(phone)) { this.sms.invites.sendQr(phone); return true; }
     if (WEEKEND_OFF.test(text) && this.sms.alerts) { this.sms.alerts.setWeekend(phone, false); this.reply(phone, 'Done: no more weekend picks. Text "weekend picks on" anytime to get them again.', 'reply'); return true; }
     if (WEEKEND_ON.test(text) && this.sms.alerts) { this.sms.alerts.setWeekend(phone, true); this.reply(phone, 'You\'re on: every Thursday afternoon I\'ll text you 2–3 ideas for the weekend. Text "no weekend picks" to stop.', 'reply'); return true; }
     if (REMINDERS_OFF.test(text) && this.sms.alerts) { this.sms.alerts.setReminders(phone, false); this.reply(phone, 'Done: no more plan reminders. Text "reminders on" anytime to get them again.', 'reply'); return true; }
@@ -589,7 +591,7 @@ export class TextFlow {
     return null;
   }
   help(t) {
-    if (!t) return 'Rall-e helps friends make plans by text. Text anything to start a plan. Reply STOP to opt out. Msg & data rates may apply.';
+    if (!t) return 'Rall-e helps friends make plans by text. Text anything to start a plan, or QR for a code friends can scan to join. Reply STOP to opt out. Msg & data rates may apply.';
     if (t.role === 'host') return 'Rall-e host commands: STATUS, INVITE name number, CONFIRM, PICK 1, ADD dinner, LOCK/OPEN, DROP, LINKS, NEW, PLANS. Anything else goes to your group. STOP to opt out.';
     return 'Rall-e: reply YES, MAYBE or NO; suggest an idea (“how about dinner instead?”); VOTE 1; STATUS; or ask about time, price or access. Anything else goes to the group. STOP to opt out.';
   }

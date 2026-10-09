@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Camera, Check, Copy, Gift, LoaderCircle, Share2, Plus, Trash2, Sparkles, BellRing } from 'lucide-react';
+import { Camera, Check, Copy, Gift, LoaderCircle, Share2, Plus, Trash2, Sparkles, BellRing, QrCode, X, Download } from 'lucide-react';
 import { Wordmark } from './Design.jsx';
 import './me.css';
 
@@ -38,7 +38,7 @@ function PhotoCard({ me, token, onChange, setError }) {
   </section>;
 }
 export default function MePage({ token }) {
-  const [me, setMe] = useState(null), [error, setError] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(false), [copied, setCopied] = useState('');
+  const [me, setMe] = useState(null), [error, setError] = useState(''), [name, setName] = useState(''), [busy, setBusy] = useState(false), [copied, setCopied] = useState(''), [qr, setQr] = useState(null);
   useEffect(() => { call(token).then(setMe).catch(e => setError(e.message)); }, [token]);
   async function create(e) {
     e.preventDefault(); setBusy(true); setError('');
@@ -66,6 +66,7 @@ export default function MePage({ token }) {
         <h2>Your links</h2>
         <ul className="me-links">{me.links.map(l => <li key={l.code}>
           <div><strong>{l.label || 'Your invite link'}</strong><span className="me-link-url" aria-label="Invite link">{l.url.replace(/^https?:\/\//, '')}</span><small>{l.joins ? `${l.joins} joined` : 'No one yet'}</small></div>
+          <button className="button secondary me-qr-btn" disabled={!left} onClick={() => setQr(l)} aria-label={`Show a QR code for ${l.label || 'your invite link'}`}><QrCode size={16}/>QR</button>
           <button className="button primary" disabled={!left} onClick={() => share(l)} aria-label={`Share ${l.label || 'your invite link'}`}>{copied === l.code ? <><Check size={16}/>Copied</> : navigator.share ? <><Share2 size={16}/>Share</> : <><Copy size={16}/>Copy</>}</button>
         </li>)}</ul>
         <form className="me-new" onSubmit={create}>
@@ -80,7 +81,22 @@ export default function MePage({ token }) {
       <MemoryCard me={me} token={token} onChange={d => setMe({ ...me, ...d })} setError={setError}/>
       {me.joined.length > 0 && <section className="me-card"><h2>Joined with your invite</h2><ul className="me-joined">{me.joined.map((j, i) => <li key={i}><span className="avatar">{j.name.slice(0, 1)}</span><span>{j.name}</span><small>{new Date(j.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small></li>)}</ul></section>}
     </div>}
+    {qr && <QrOverlay link={qr} onClose={() => setQr(null)}/>}
   </main>;
+}
+
+// Full-screen invite QR code for sharing in person: the friend points their camera at this screen.
+function QrOverlay({ link, onClose }) {
+  const src = `/i/${link.code}/qr.png`;
+  useEffect(() => { const esc = e => e.key === 'Escape' && onClose(); addEventListener('keydown', esc); return () => removeEventListener('keydown', esc); }, [onClose]);
+  return <div className="me-qr" role="dialog" aria-modal="true" aria-label="Invite QR code" onClick={onClose}>
+    <img src={src} alt={`QR code for ${link.url.replace(/^https?:\/\//, '')}`} onClick={e => e.stopPropagation()}/>
+    <p>Have your friend point their phone camera at the code. Turn your brightness up if it won’t scan.</p>
+    <div className="me-qr-actions" onClick={e => e.stopPropagation()}>
+      <a className="button secondary" href={src} download="rall-e-invite-qr.png"><Download size={16}/>Save picture</a>
+      <button className="button primary" onClick={onClose} autoFocus><X size={16}/>Done</button>
+    </div>
+  </div>;
 }
 
 // What Rall-e remembers about them (their own facts only), each deletable. Texting "forget …" works too.

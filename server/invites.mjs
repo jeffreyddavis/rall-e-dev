@@ -32,6 +32,18 @@ export class Invites {
   quota(phone) { return this.db.prepare('SELECT quota FROM invite_quota WHERE phone=?').get(phone)?.quota ?? this.quotaDefault; }
   used(phone) { return this.db.prepare('SELECT COUNT(*) AS n FROM invite_uses WHERE owner=?').get(phone).n; }
   url(code) { return `${this.base}/i/${code}`; }
+  qrUrl(code) { return `${this.base}/i/${code}/qr.png`; }
+  // Texts the member a QR code picture of their invite link, for sharing in person (a friend scans it with their camera).
+  sendQr(phone, { withPage = true } = {}) {
+    if (!this.member(phone)) fail(403, 'Only Rall-e members can invite people.');
+    const code = this.defaultLink(phone), left = Math.max(0, this.quota(phone) - this.used(phone));
+    const body = left
+      ? `Here's your Rall-e QR code. A friend points their phone camera at it to join with your invite (${left} of ${this.quota(phone)} left).${withPage ? ` It's also on your page, full screen: ${this.pageLink(phone)}` : ''}`
+      : `Here's your Rall-e QR code, but your invites are all used up, so friends who scan it will land on the waitlist.`;
+    const status = this.sms.deliver(phone, body, { kind: 'invite_qr', media: this.qrUrl(code) });
+    stats.bump('invite_qr_sent', 1, phone);
+    return { code, url: this.url(code), left, status };
+  }
 
   // ---------- links ----------
   links(phone) { return this.db.prepare('SELECT code, label, created FROM invite_links WHERE owner=? AND disabled=0 ORDER BY created').all(phone); }

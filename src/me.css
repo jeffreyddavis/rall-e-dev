@@ -50,3 +50,10 @@ h2.me-title{font-family:'DM Serif Display',serif;font-weight:400;font-size:30px;
 .me-switch{display:flex;align-items:flex-start;gap:12px;padding:12px;border-radius:16px;background:rgba(62,119,152,.07);cursor:pointer}
 .me-switch input{width:20px;height:20px;margin:2px 0 0;flex:none;accent-color:#2f89c2}
 .me-switch span{display:flex;flex-direction:column;gap:2px}.me-switch strong{font-weight:600;color:#2e3a40}.me-switch small{font-size:13px;color:#6b7a82}
+
+.me-links .me-qr-btn{padding:10px 12px}
+.me-qr{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:16px;background:rgba(10,24,36,.86);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.me-qr img{width:min(100%,440px);max-height:72vh;object-fit:contain;border-radius:28px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.me-qr p{margin:0;max-width:440px;text-align:center;color:#e8f1f7;font-size:14px}
+.me-qr-actions{display:flex;gap:12px}
+.me-qr-actions .button{display:inline-flex;align-items:center;gap:6px;text-decoration:none}

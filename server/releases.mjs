@@ -35,5 +35,6 @@ export const RELEASES = [
   { id: '2026-10-08-weekend-picks', date: '2026-10-08', hold: true, text: 'Want ideas for the weekend? Text "weekend picks on" and every Thursday afternoon I\x27ll send you 2–3 picks based on what you like.' },
   { id: '2026-10-08-about-you', date: '2026-10-08', hold: true, text: 'Tell me what you\x27re into (music, comedy, food, things you like doing) on your page, and my picks get better. Text "my page" for the link.' },
   { id: '2026-10-08-nature-alerts', date: '2026-10-08', hold: true, text: 'Tide pooler or waterfall chaser? Ask me to watch for daytime low tides near a beach, waterfalls running after a big rain, or news on a page like beach parking or trail closures, and I\x27ll text you when it happens.' },
-  { id: '2026-10-08-plan-reminders', date: '2026-10-08', hold: true, text: 'I now text a quick reminder the evening before and the morning of your plans: when, where and who\x27s coming. Text "no reminders" if you\x27d rather not.' }
+  { id: '2026-10-08-plan-reminders', date: '2026-10-08', hold: true, text: 'I now text a quick reminder the evening before and the morning of your plans: when, where and who\x27s coming. Text "no reminders" if you\x27d rather not.' },
+  { id: '2026-10-09-invite-qr', date: '2026-10-09', hold: true, text: 'Showing Rall-e to a friend in person? Text me "QR" and I\x27ll send a code they can scan with their camera to join with your invite. It\x27s on your page too (text "my page").' }
 ];

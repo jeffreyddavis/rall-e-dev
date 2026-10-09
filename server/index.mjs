@@ -13,6 +13,7 @@ import { usageReport } from './usage.mjs';
 import { wipeTexts, removePerson } from './wipe.mjs';
 import { stats } from './stats.mjs';
 import { OgImages } from './og.mjs';
+import { qrCardPng } from './qr.mjs';
 import { eventById } from './catalog.mjs';
 import { legText } from './discovery.mjs';
 
@@ -366,6 +367,12 @@ const server = http.createServer(async (req, res) => {
       let photo = photoCache.get(photoMatch[1]);
       if (!photo) { photo = await sms.discovery.placePhoto(eventById(photoMatch[1])); if (!photo) fail(404, 'Not found.'); if (photoCache.size > 200) photoCache.delete(photoCache.keys().next().value); photoCache.set(photoMatch[1], photo); }
       res.writeHead(200, { 'content-type': photo.type, 'cache-control': 'public, max-age=86400' }); return res.end(photo.bytes);
+    }
+    // A member's invite as a QR card (texted as a picture and shown on their page). Dead links get a 404.
+    const qrMatch = /^\/i\/([a-z0-9-]{8,64})\/qr\.png$/.exec(url.pathname);
+    if (qrMatch) {
+      const l = sms.invites.lookup(qrMatch[1]), png = qrCardPng({ url: sms.invites.url(l.code), name: l.inviter === 'A friend' ? '' : l.inviter });
+      res.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length, 'cache-control': 'public, max-age=3600' }); return res.end(png);
     }
     const ogMatch = /^\/og\/e\/([\w-]{1,40})\.(?:png|jpg)$/.exec(url.pathname);
     if (ogMatch) {
